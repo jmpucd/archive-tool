@@ -23,8 +23,16 @@ class LocalConfig:
 
 
 @dataclass(frozen=True)
+class CentosConfig:
+    host: str
+    user: str
+    archives_root: str
+
+
+@dataclass(frozen=True)
 class Config:
     local: LocalConfig
+    centos: CentosConfig | None
     source_path: Path  # which file the config was loaded from
 
 
@@ -44,6 +52,13 @@ def load_config() -> Config:
     with path.open("rb") as f:
         data = tomllib.load(f)
 
+    local = _parse_local(path, data)
+    centos = _parse_centos(path, data)
+
+    return Config(local=local, centos=centos, source_path=path)
+
+
+def _parse_local(path: Path, data: dict) -> LocalConfig:
     local_raw = data.get("local")
     if not local_raw:
         raise ConfigError(f"{path}: missing [local] section")
@@ -66,7 +81,20 @@ def load_config() -> Config:
             ArchiveQueue(label=q["label"], path=Path(q["path"]).expanduser())
         )
 
-    return Config(
-        local=LocalConfig(hostname_label=hostname_label, archive_queue_paths=queues),
-        source_path=path,
+    return LocalConfig(hostname_label=hostname_label, archive_queue_paths=queues)
+
+
+def _parse_centos(path: Path, data: dict) -> CentosConfig | None:
+    centos_raw = data.get("remote", {}).get("centos")
+    if not centos_raw:
+        return None
+
+    for key in ("host", "user", "archives_root"):
+        if not centos_raw.get(key):
+            raise ConfigError(f"{path}: [remote.centos].{key} is required")
+
+    return CentosConfig(
+        host=centos_raw["host"],
+        user=centos_raw["user"],
+        archives_root=centos_raw["archives_root"],
     )

@@ -1,10 +1,14 @@
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
 import questionary
 import typer
 
+from archive_tool import ssh
 from archive_tool.config import ArchiveQueue
+
+NEW_COLLECTION_LABEL = "+ new collection"
 
 
 @dataclass(frozen=True)
@@ -48,3 +52,75 @@ def pick_project(projects: list[Project]) -> Project | None:
         use_search_filter=True,
         use_jk_keys=False,
     ).ask()
+
+
+def pick_collection_path(host: str, user: str, archives_root: str) -> str | None:
+    """Two-level remote picker over SSH.
+
+    Lists top-level dirs under archives_root. If the picked dir matches `*-Collections`,
+    recurses one level and offers a "new collection" option. Otherwise returns the
+    picked top-level path directly. Returns None if the user cancels.
+
+    Does not create any directories. If "new collection" is chosen, the path is returned
+    along with a stderr note that the user must mkdir it manually before transferring.
+    """
+    parents = ssh.list_dirs(host, user, archives_root)
+    if not parents:
+        typer.echo(
+            f"No directories found at {archives_root} on {host}. Nothing to pick.",
+            err=True,
+        )
+        return None
+
+    parent = questionary.select(
+        f"Pick a destination folder under {archives_root}",
+        choices=parents,
+        use_search_filter=True,
+        use_jk_keys=False,
+    ).ask()
+    if parent is None:
+        return None
+
+    parent_path = f"{archives_root.rstrip('/')}/{parent}"
+    if not parent.endswith("-Collections"):
+        return parent_path
+
+    children = ssh.list_dirs(host, user, parent_path)
+    choices = children + [NEW_COLLECTION_LABEL]
+    child = questionary.select(
+        f"Pick a collection in {parent}",
+        choices=choices,
+        use_search_filter=True,
+        use_jk_keys=False,
+    ).ask()
+    if child is None:
+        return None
+
+    if child == NEW_COLLECTION_LABEL:
+        return _prompt_new_collection(host, user, parent, parent_path)
+
+    return f"{parent_path}/{child}"
+
+
+def _prompt_new_collection(host: str, user: str, parent: str, parent_path: str) -> str | None:
+    prefix = parent.removesuffix("-Collections")
+    pattern = re.compile(rf"^{re.escape(prefix)}-\d+$")
+
+    def validate(v: str) -> bool | str:
+        return True if pattern.match(v) else f"must look like {prefix}-NNN (digits only)"
+
+    new_id = questionary.text(
+        f"New collection ID (e.g. {prefix}-450):",
+        validate=validate,
+    ).ask()
+    if new_id is None:
+        return None
+
+    new_path = f"{parent_path}/{new_id}"
+    typer.echo(
+        f"\nNote: {new_path} does not exist yet on {host}.\n"
+        f"Create it manually before transferring:\n"
+        f"  ssh {user}@{host} mkdir {new_path}\n",
+        err=True,
+    )
+    return new_path
