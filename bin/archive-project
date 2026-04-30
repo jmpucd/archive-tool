@@ -1,5 +1,8 @@
 #!/bin/sh
 # Entry point for the orchestrator. Runs via uv from the repo's venv,
 # so no manual `source .venv/bin/activate` is needed.
+# Prepend ~/.local/bin so uv is found whether installed via brew (already
+# on PATH) or via the standalone installer (lands in ~/.local/bin).
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PATH="$HOME/.local/bin:$PATH"
 exec uv run --project "$SCRIPT_DIR/.." archive-project "$@"
