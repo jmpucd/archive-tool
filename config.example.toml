@@ -7,12 +7,13 @@
 hostname_label = "REPLACE_ME"   # e.g. "laptop", "studio", "mini-1"
 
 # Paths the tool scans for projects ready to archive.
+# `label` shows up in the picker; `path` is the folder to scan.
 # Drives that aren't currently mounted are silently skipped.
 # Each folder must contain a `.archive-source` marker file to be treated as a valid source.
 archive_queue_paths = [
-  "/Users/REPLACE_ME/archive_queue",
-  "/Volumes/WorkingDrive/archive_queue",
-  "/Volumes/PortableSSD/archive_queue",
+  { label = "Internal",     path = "/Users/REPLACE_ME/archive_queue" },
+  { label = "WorkingDrive", path = "/Volumes/WorkingDrive/archive_queue" },
+  { label = "PortableSSD",  path = "/Volumes/PortableSSD/archive_queue" },
 ]
 
 [remote.synology]
