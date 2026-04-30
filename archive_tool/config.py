@@ -23,15 +23,24 @@ class LocalConfig:
 
 
 @dataclass(frozen=True)
+class SynologyConfig:
+    host: str          # how the laptop reaches Synology (Tailscale IP/hostname)
+    user: str
+    staging_dir: str
+
+
+@dataclass(frozen=True)
 class CentosConfig:
-    host: str
+    host: str               # how the laptop reaches CentOS
     user: str
     archives_root: str
+    host_from_synology: str | None = None  # how Synology reaches CentOS (campus DNS)
 
 
 @dataclass(frozen=True)
 class Config:
     local: LocalConfig
+    synology: SynologyConfig | None
     centos: CentosConfig | None
     source_path: Path  # which file the config was loaded from
 
@@ -52,10 +61,12 @@ def load_config() -> Config:
     with path.open("rb") as f:
         data = tomllib.load(f)
 
-    local = _parse_local(path, data)
-    centos = _parse_centos(path, data)
-
-    return Config(local=local, centos=centos, source_path=path)
+    return Config(
+        local=_parse_local(path, data),
+        synology=_parse_synology(path, data),
+        centos=_parse_centos(path, data),
+        source_path=path,
+    )
 
 
 def _parse_local(path: Path, data: dict) -> LocalConfig:
@@ -84,17 +95,26 @@ def _parse_local(path: Path, data: dict) -> LocalConfig:
     return LocalConfig(hostname_label=hostname_label, archive_queue_paths=queues)
 
 
-def _parse_centos(path: Path, data: dict) -> CentosConfig | None:
-    centos_raw = data.get("remote", {}).get("centos")
-    if not centos_raw:
+def _parse_synology(path: Path, data: dict) -> SynologyConfig | None:
+    raw = data.get("remote", {}).get("synology")
+    if not raw:
         return None
+    for key in ("host", "user", "staging_dir"):
+        if not raw.get(key):
+            raise ConfigError(f"{path}: [remote.synology].{key} is required")
+    return SynologyConfig(host=raw["host"], user=raw["user"], staging_dir=raw["staging_dir"])
 
+
+def _parse_centos(path: Path, data: dict) -> CentosConfig | None:
+    raw = data.get("remote", {}).get("centos")
+    if not raw:
+        return None
     for key in ("host", "user", "archives_root"):
-        if not centos_raw.get(key):
+        if not raw.get(key):
             raise ConfigError(f"{path}: [remote.centos].{key} is required")
-
     return CentosConfig(
-        host=centos_raw["host"],
-        user=centos_raw["user"],
-        archives_root=centos_raw["archives_root"],
+        host=raw["host"],
+        user=raw["user"],
+        archives_root=raw["archives_root"],
+        host_from_synology=raw.get("host_from_synology"),
     )

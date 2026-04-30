@@ -4,7 +4,7 @@
 
 [local]
 # Short label for this machine, used in log lines and the Google Sheet's "Source machine" column.
-hostname_label = "REPLACE_ME"   # e.g. "laptop", "studio", "mini-1"
+hostname_label = "REPLACE_ME"   # e.g. "laptop", "studio", "mini2"
 
 # Paths the tool scans for projects ready to archive.
 # `label` shows up in the picker; `path` is the folder to scan.
@@ -17,18 +17,25 @@ archive_queue_paths = [
 ]
 
 [remote.synology]
-host = "REPLACE_ME.tail-scale-net.ts.net"
+# How this machine reaches the Synology over SSH (Tailscale IP or hostname).
+host = "REPLACE_ME"
 user = "REPLACE_ME"
-staging_dir = "/volume1/archive-staging"
+staging_dir = "/volume1/Digitization_Files/archive-staging"
 
 [remote.centos]
-host = "REPLACE_ME.tail-scale-net.ts.net"
+# How this machine reaches the CentOS archives box. Used for the laptop's direct
+# SSH (collection picker, manifest verification).
+host = "REPLACE_ME"
 user = "REPLACE_ME"
-archives_root = "/REPLACE_ME"   # confirmed CentOS archives root path
+archives_root = "/REPLACE_ME"   # absolute path to the archives root on CentOS
 
-[google]
-service_account_path = "~/.config/archive-tool/google-creds.json"
-sheet_id = "REPLACE_ME"   # the spreadsheet ID from the URL
+# How the *Synology* reaches CentOS. The second-leg rsync runs ON Synology and
+# pushes to CentOS, so it needs whatever address Synology can route to (usually
+# campus DNS, since Synology may not be on the tailnet for outbound peers).
+# Leave unset to fall back to `host`.
+host_from_synology = "REPLACE_ME.library.ucdavis.edu"
 
 [rsync]
+# Reserved for future per-config customization. The exclude list is currently
+# hardcoded in archive_tool.transfer.
 exclude = ["@eaDir", "lost+found", ".DS_Store", "Thumbs.db", "*.tmp"]
