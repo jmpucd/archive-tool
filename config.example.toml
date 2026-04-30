@@ -1,0 +1,33 @@
+# Per-machine config for archive-tool.
+# Copy this to ~/.config/archive-tool/config.toml on each machine that runs the orchestrator,
+# and fill in the placeholders. The real config file is gitignored.
+
+[local]
+# Short label for this machine, used in log lines and the Google Sheet's "Source machine" column.
+hostname_label = "REPLACE_ME"   # e.g. "laptop", "studio", "mini-1"
+
+# Paths the tool scans for projects ready to archive.
+# Drives that aren't currently mounted are silently skipped.
+# Each folder must contain a `.archive-source` marker file to be treated as a valid source.
+archive_queue_paths = [
+  "/Users/REPLACE_ME/archive_queue",
+  "/Volumes/WorkingDrive/archive_queue",
+  "/Volumes/PortableSSD/archive_queue",
+]
+
+[remote.synology]
+host = "REPLACE_ME.tail-scale-net.ts.net"
+user = "REPLACE_ME"
+staging_dir = "/volume1/archive-staging"
+
+[remote.centos]
+host = "REPLACE_ME.tail-scale-net.ts.net"
+user = "REPLACE_ME"
+archives_root = "/REPLACE_ME"   # confirmed CentOS archives root path
+
+[google]
+service_account_path = "~/.config/archive-tool/google-creds.json"
+sheet_id = "REPLACE_ME"   # the spreadsheet ID from the URL
+
+[rsync]
+exclude = ["@eaDir", "lost+found", ".DS_Store", "Thumbs.db", "*.tmp"]

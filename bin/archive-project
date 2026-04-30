@@ -1,0 +1,5 @@
+#!/bin/sh
+# Entry point for the orchestrator. Runs via uv from the repo's venv,
+# so no manual `source .venv/bin/activate` is needed.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+exec uv run --project "$SCRIPT_DIR/.." archive-project "$@"

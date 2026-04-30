@@ -1,0 +1,22 @@
+[project]
+name = "archive-tool"
+version = "0.1.0"
+description = "Push finished digitization projects from any machine through Synology to CentOS, with Box sharing tracked in a Google Sheet."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "John Pike" }]
+dependencies = [
+  "typer>=0.12",
+  "questionary>=2.0",
+  "gspread>=6.0",
+]
+
+[project.scripts]
+archive-project = "archive_tool.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["archive_tool"]
