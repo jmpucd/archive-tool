@@ -5,6 +5,7 @@ import typer
 from archive_tool import checksums
 from archive_tool import config as config_mod
 from archive_tool import pickers
+from archive_tool import sheet
 from archive_tool import ssh
 from archive_tool import transfer
 
@@ -152,7 +153,44 @@ def _execute_transfer(
     typer.echo("  ok")
 
     mc = checksums.manifest_checksum(manifest_path)
+
+    typer.echo("\n[log] recording turn-in to Google Sheet...")
+    _log_to_sheet(source_path, centos_final, mc, cfg)
+
     typer.echo()
     typer.echo("done.")
     typer.echo(f"  centos:            {cfg.centos.user}@{cfg.centos.host}:{centos_final}")
     typer.echo(f"  manifest checksum: {mc}")
+
+
+def _log_to_sheet(
+    source_path: Path,
+    centos_final: str,
+    manifest_checksum: str,
+    cfg: config_mod.Config,
+) -> None:
+    """Append the turn-in row. Never fails the run — the files are already archived.
+
+    Dedups on the CentOS path so a re-archive of the same project doesn't duplicate a row.
+    """
+    if cfg.google is None:
+        typer.echo("  skipped: no [google] section in config", err=True)
+        return
+    try:
+        ws = sheet.open_worksheet(cfg.google)
+        if sheet.find_row(ws, "CentOS path", centos_final) is not None:
+            typer.echo(f"  already logged for {centos_final}; leaving existing row")
+            return
+        sheet.append_project(
+            ws,
+            project_id=sheet.make_project_id(),
+            project_name=source_path.name,
+            source_machine=cfg.local.hostname_label,
+            source_path=str(source_path),
+            centos_path=centos_final,
+            basil_path="",  # TODO: populate once the basil transfer leg exists (task #6)
+            manifest_checksum=manifest_checksum,
+        )
+        typer.echo("  logged.")
+    except sheet.SheetError as e:
+        typer.echo(f"  warning: sheet logging failed (files ARE archived): {e}", err=True)

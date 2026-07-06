@@ -38,10 +38,27 @@ class CentosConfig:
 
 
 @dataclass(frozen=True)
+class GoogleConfig:
+    service_account_path: Path  # path to the service-account JSON key
+    sheet_id: str               # spreadsheet ID from the sheet's URL
+
+
+@dataclass(frozen=True)
+class BoxConfig:
+    jwt_config_path: Path        # Box JWT app config JSON
+    user_email: str              # as-user identity the poller acts as
+    rclone_remote: str           # rclone remote to copy into, e.g. "Box.com:"
+    base_folder: str             # base Box folder for shared archives, e.g. "Archives"
+    collaborator_role: str = "viewer"  # Box role granted to shared-with emails
+
+
+@dataclass(frozen=True)
 class Config:
     local: LocalConfig
     synology: SynologyConfig | None
     centos: CentosConfig | None
+    google: GoogleConfig | None
+    box: BoxConfig | None
     source_path: Path  # which file the config was loaded from
 
 
@@ -65,6 +82,8 @@ def load_config() -> Config:
         local=_parse_local(path, data),
         synology=_parse_synology(path, data),
         centos=_parse_centos(path, data),
+        google=_parse_google(path, data),
+        box=_parse_box(path, data),
         source_path=path,
     )
 
@@ -117,4 +136,33 @@ def _parse_centos(path: Path, data: dict) -> CentosConfig | None:
         user=raw["user"],
         archives_root=raw["archives_root"],
         host_from_synology=raw.get("host_from_synology"),
+    )
+
+
+def _parse_google(path: Path, data: dict) -> GoogleConfig | None:
+    raw = data.get("google")
+    if not raw:
+        return None
+    for key in ("service_account_path", "sheet_id"):
+        if not raw.get(key):
+            raise ConfigError(f"{path}: [google].{key} is required")
+    return GoogleConfig(
+        service_account_path=Path(raw["service_account_path"]).expanduser(),
+        sheet_id=raw["sheet_id"],
+    )
+
+
+def _parse_box(path: Path, data: dict) -> BoxConfig | None:
+    raw = data.get("remote", {}).get("box")
+    if not raw:
+        return None
+    for key in ("jwt_config_path", "user_email", "rclone_remote", "base_folder"):
+        if not raw.get(key):
+            raise ConfigError(f"{path}: [remote.box].{key} is required")
+    return BoxConfig(
+        jwt_config_path=Path(raw["jwt_config_path"]).expanduser(),
+        user_email=raw["user_email"],
+        rclone_remote=raw["rclone_remote"],
+        base_folder=raw["base_folder"],
+        collaborator_role=raw.get("collaborator_role", "viewer"),
     )

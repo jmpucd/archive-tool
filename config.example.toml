@@ -35,6 +35,27 @@ archives_root = "/REPLACE_ME"   # absolute path to the archives root on CentOS
 # Leave unset to fall back to `host`.
 host_from_synology = "REPLACE_ME.library.ucdavis.edu"
 
+[remote.box]
+# Box poller (Step 5) — only needed on the CentOS box that runs box_share_poller.py.
+# JWT app config JSON downloaded from the Box Developer Console (keep out of git).
+jwt_config_path = "~/.config/archive-tool/box-jwt-config.json"
+# The Box user the poller acts as (as-user), so it operates on files rclone uploaded.
+user_email = "REPLACE_ME@ucdavis.edu"
+# Which configured rclone remote to copy into, and the base Box folder for shared archives.
+rclone_remote = "Box.com:"
+base_folder = "Archives"
+# Box role granted to shared-with emails: viewer | editor | previewer | uploader | co-owner.
+collaborator_role = "viewer"
+
+[google]
+# Turn-in logging (Step 4). Omit this whole section on machines that only pick/transfer
+# and shouldn't log (the flow warns and continues if it's missing).
+# Service-account JSON key, downloaded from Google Cloud Console. Keep it out of git.
+service_account_path = "~/.config/archive-tool/google-creds.json"
+# Spreadsheet ID from the sheet URL: .../spreadsheets/d/<THIS>/edit
+# The sheet must be shared with the service account's email as Editor.
+sheet_id = "REPLACE_ME"
+
 [rsync]
 # Reserved for future per-config customization. The exclude list is currently
 # hardcoded in archive_tool.transfer.
