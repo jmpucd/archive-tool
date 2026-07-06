@@ -11,6 +11,13 @@ dependencies = [
   "gspread>=6.0",
 ]
 
+# Box poller (Step 5) runs only on CentOS. Install there with `uv sync --extra poller`.
+# Kept optional so the laptop orchestrator stays lean and never imports the Box SDK.
+[project.optional-dependencies]
+poller = [
+  "box-sdk-gen[jwt]>=1.5",  # [jwt] pulls PyJWT + cryptography, needed for JWT signing
+]
+
 [project.scripts]
 archive-project = "archive_tool.cli:app"
 
