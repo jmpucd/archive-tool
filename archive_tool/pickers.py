@@ -5,10 +5,11 @@ from pathlib import Path
 import questionary
 import typer
 
-from archive_tool import ssh
+from archive_tool import collaborators, ssh
 from archive_tool.config import ArchiveQueue
 
 NEW_COLLECTION_LABEL = "+ new collection"
+ADD_EMAIL_VALUE = "__add_new_email__"
 
 
 @dataclass(frozen=True)
@@ -100,6 +101,53 @@ def pick_collection_path(host: str, user: str, archives_root: str) -> str | None
         return _prompt_new_collection(host, user, parent, parent_path)
 
     return f"{parent_path}/{child}"
+
+
+def pick_share_recipients() -> list[str] | None:
+    """Checklist of frequent collaborators + an inline 'add new email' option.
+
+    Returns the chosen emails (possibly empty), or None if the user cancels. Newly
+    typed emails are saved to the collaborator store so they appear next time.
+    """
+    choices = [
+        questionary.Choice(title=c.label(), value=c.email) for c in collaborators.load()
+    ]
+    choices.append(questionary.Choice(title="+ add a new email", value=ADD_EMAIL_VALUE))
+    selected = questionary.checkbox(
+        "Share with (space to toggle, enter to confirm; leave empty for none)",
+        choices=choices,
+    ).ask()
+    if selected is None:
+        return None
+
+    emails = [s for s in selected if s != ADD_EMAIL_VALUE]
+    if ADD_EMAIL_VALUE in selected:
+        added = _prompt_new_emails()
+        if added is None:
+            return None
+        emails.extend(added)
+
+    seen: set[str] = set()
+    return [e for e in emails if not (e in seen or seen.add(e))]
+
+
+def _prompt_new_emails() -> list[str] | None:
+    raw = questionary.text(
+        "New email(s), comma-separated (saved for next time):"
+    ).ask()
+    if raw is None:
+        return None
+    out = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        collab, was_new = collaborators.add(part)
+        if collab is None:
+            typer.echo(f"  skipped (no email found): {part}", err=True)
+        else:
+            out.append(collab.email)
+    return out
 
 
 def _prompt_new_collection(host: str, user: str, parent: str, parent_path: str) -> str | None:

@@ -45,11 +45,8 @@ class GoogleConfig:
 
 @dataclass(frozen=True)
 class BoxConfig:
-    jwt_config_path: Path        # Box JWT app config JSON
-    user_email: str              # as-user identity the poller acts as
-    rclone_remote: str           # rclone remote to copy into, e.g. "Box.com:"
-    base_folder: str             # base Box folder for shared archives, e.g. "Archives"
-    collaborator_role: str = "viewer"  # Box role granted to shared-with emails
+    rclone_remote: str  # rclone remote to copy into, e.g. "box:"
+    base_folder: str    # base Box folder for uploaded projects, e.g. "Archives"
 
 
 @dataclass(frozen=True)
@@ -156,13 +153,10 @@ def _parse_box(path: Path, data: dict) -> BoxConfig | None:
     raw = data.get("remote", {}).get("box")
     if not raw:
         return None
-    for key in ("jwt_config_path", "user_email", "rclone_remote", "base_folder"):
+    for key in ("rclone_remote", "base_folder"):
         if not raw.get(key):
             raise ConfigError(f"{path}: [remote.box].{key} is required")
     return BoxConfig(
-        jwt_config_path=Path(raw["jwt_config_path"]).expanduser(),
-        user_email=raw["user_email"],
         rclone_remote=raw["rclone_remote"],
         base_folder=raw["base_folder"],
-        collaborator_role=raw.get("collaborator_role", "viewer"),
     )

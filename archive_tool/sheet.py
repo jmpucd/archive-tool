@@ -33,6 +33,7 @@ COLUMNS = [
 ]
 
 STATUS_ARCHIVED = "archived, not shared"
+STATUS_ON_BOX = "on box, share manually"  # uploaded to Box; John adds collaborators by hand
 
 # 0-based column index of "Share on Box", used to attach checkbox data validation.
 _SHARE_ON_BOX_COL = COLUMNS.index("Share on Box")
@@ -93,8 +94,12 @@ def append_project(
     centos_path: str,
     basil_path: str,
     manifest_checksum: str,
+    box_path: str = "",
+    share_with: str = "",
 ) -> None:
-    """Append one 'archived, not shared' row. Share columns start empty/unchecked."""
+    """Append one turn-in row. If box_path is set, the project was uploaded to Box and
+    the row is flagged for manual sharing (Shared date stays blank until John shares)."""
+    on_box = bool(box_path)
     row = [
         project_id,
         project_name,
@@ -102,13 +107,13 @@ def append_project(
         source_path,
         centos_path,
         basil_path,
-        STATUS_ARCHIVED,
+        STATUS_ON_BOX if on_box else STATUS_ARCHIVED,
         f"{datetime.now():%Y-%m-%d %H:%M}",
         manifest_checksum,
-        False,  # Share on Box (checkbox, unticked)
-        "",     # Share with
-        "",     # Box path
-        "",     # Shared date
+        on_box,      # Share on Box (checkbox): ticked when uploaded
+        share_with,  # Share with (emails John intends to share with)
+        box_path,    # Box path
+        "",          # Shared date (John fills when he actually shares)
     ]
     resp = ws.append_row(row, value_input_option="USER_ENTERED")
     _apply_checkbox_validation(ws, _appended_row_index(resp))
@@ -140,20 +145,6 @@ def update_fields(ws: "gspread.Worksheet", row: int, fields: dict[str, str]) -> 
         a1 = rowcol_to_a1(row, COLUMNS.index(column) + 1)
         data.append({"range": a1, "values": [[value]]})
     ws.batch_update(data, value_input_option="USER_ENTERED")
-
-
-def read_rows(ws: "gspread.Worksheet") -> list[tuple[int, dict]]:
-    """Return (1-based row number, record dict) for each data row that has a Project ID.
-
-    The poller iterates these to find share/unshare candidates and needs the row number
-    to write status back to the right row.
-    """
-    records = ws.get_all_records(expected_headers=COLUMNS)
-    rows = []
-    for offset, rec in enumerate(records):
-        if str(rec.get("Project ID", "")).strip():
-            rows.append((offset + 2, rec))  # +2: row 1 is the header, records are 0-based
-    return rows
 
 
 def _appended_row_index(append_response: dict) -> int:
