@@ -55,26 +55,26 @@ def pick_project(projects: list[Project]) -> Project | None:
     ).ask()
 
 
-def pick_collection_path(host: str, user: str, archives_root: str) -> str | None:
+def pick_collection_path(host: str, user: str, root: str) -> str | None:
     """Two-level remote picker over SSH.
 
-    Lists top-level dirs under archives_root. If the picked dir matches `*-Collections`,
+    Lists top-level dirs under root. If the picked dir matches `*-Collections`,
     recurses one level and offers a "new collection" option. Otherwise returns the
     picked top-level path directly. Returns None if the user cancels.
 
     Does not create any directories. If "new collection" is chosen, the path is returned
     along with a stderr note that the user must mkdir it manually before transferring.
     """
-    parents = ssh.list_dirs(host, user, archives_root)
+    parents = ssh.list_dirs(host, user, root)
     if not parents:
         typer.echo(
-            f"No directories found at {archives_root} on {host}. Nothing to pick.",
+            f"No directories found at {root} on {host}. Nothing to pick.",
             err=True,
         )
         return None
 
     parent = questionary.select(
-        f"Pick a destination folder under {archives_root}",
+        f"Pick a destination folder under {root}",
         choices=parents,
         use_search_filter=True,
         use_jk_keys=False,
@@ -82,7 +82,7 @@ def pick_collection_path(host: str, user: str, archives_root: str) -> str | None
     if parent is None:
         return None
 
-    parent_path = f"{archives_root.rstrip('/')}/{parent}"
+    parent_path = f"{root.rstrip('/')}/{parent}"
     if not parent.endswith("-Collections"):
         return parent_path
 

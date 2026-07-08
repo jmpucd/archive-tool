@@ -3,7 +3,6 @@ import subprocess
 from pathlib import Path
 
 from archive_tool import ssh
-from archive_tool.config import CentosConfig, SynologyConfig
 
 EXCLUDES = ("@eaDir", "lost+found", ".DS_Store", "Thumbs.db", "*.tmp")
 
@@ -12,38 +11,21 @@ class TransferError(Exception):
     pass
 
 
-def push_to_synology(source: Path, syn: SynologyConfig) -> str:
-    """Rsync source dir to Synology staging. Returns the destination path on Synology.
+def push_to_remote(
+    source: Path, host: str, user: str, dest: str, make_parents: bool = False
+) -> None:
+    """Rsync the *contents* of `source` into `dest` on user@host. The Mac is the source.
 
-    Includes a trailing slash on source so rsync copies the *contents* into a folder
-    named after the project, not nested one level deeper.
+    The trailing slash on source copies the contents into `dest` (named after the
+    project), not nested one level deeper. When make_parents is set, `mkdir -p dest` runs
+    on the remote first — used for the CentOS masters tree, which is organic and may not
+    have the collection path yet. (basil collections come from its own picker, so they
+    already exist; only the project dir is created there by rsync.)
     """
-    dest = f"{syn.staging_dir.rstrip('/')}/{source.name}"
-    target = f"{syn.user}@{syn.host}:{dest}"
-    args = _rsync_args() + [f"{source}/", f"{target}/"]
-    _run_local(args)
-    return dest
-
-
-def push_synology_to_centos(
-    syn_path: str,
-    syn: SynologyConfig,
-    centos: CentosConfig,
-    dest_parent: str,
-) -> str:
-    """Drive an rsync from Synology to CentOS. Returns the final path on CentOS.
-
-    Synology runs rsync, pushing to CentOS via campus DNS (host_from_synology).
-    """
-    project_name = Path(syn_path).name
-    centos_dest = f"{dest_parent.rstrip('/')}/{project_name}"
-    centos_addr = centos.host_from_synology or centos.host
-    target = f"{centos.user}@{centos_addr}:{centos_dest}"
-
-    rsync_args = _rsync_args() + [f"{syn_path}/", f"{target}/"]
-    rsync_cmd = " ".join(shlex.quote(a) for a in rsync_args)
-    ssh.run_remote_streaming(syn.host, syn.user, rsync_cmd)
-    return centos_dest
+    if make_parents:
+        ssh.run_remote(host, user, f"mkdir -p {shlex.quote(dest)}")
+    target = f"{user}@{host}:{dest}/"
+    _run_local(_rsync_args() + [f"{source}/", target])
 
 
 def verify_manifest_remote(host: str, user: str, project_path: str) -> None:

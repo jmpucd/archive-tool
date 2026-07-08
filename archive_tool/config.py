@@ -23,18 +23,17 @@ class LocalConfig:
 
 
 @dataclass(frozen=True)
-class SynologyConfig:
-    host: str          # how the laptop reaches Synology (Tailscale IP/hostname)
+class CentosConfig:
+    host: str          # how the Mac reaches CentOS (ssh alias / Tailscale / campus DNS)
     user: str
-    staging_dir: str
+    masters_root: str  # where John's master copies land, e.g. /digitization/Final_Output_Masters_Backup
 
 
 @dataclass(frozen=True)
-class CentosConfig:
-    host: str               # how the laptop reaches CentOS
+class BasilConfig:
+    host: str          # how the Mac reaches basil
     user: str
-    archives_root: str
-    host_from_synology: str | None = None  # how Synology reaches CentOS (campus DNS)
+    uploads_root: str  # Special Collections archive root + the destination-picker source
 
 
 @dataclass(frozen=True)
@@ -52,8 +51,8 @@ class BoxConfig:
 @dataclass(frozen=True)
 class Config:
     local: LocalConfig
-    synology: SynologyConfig | None
     centos: CentosConfig | None
+    basil: BasilConfig | None
     google: GoogleConfig | None
     box: BoxConfig | None
     source_path: Path  # which file the config was loaded from
@@ -77,8 +76,8 @@ def load_config() -> Config:
 
     return Config(
         local=_parse_local(path, data),
-        synology=_parse_synology(path, data),
         centos=_parse_centos(path, data),
+        basil=_parse_basil(path, data),
         google=_parse_google(path, data),
         box=_parse_box(path, data),
         source_path=path,
@@ -111,28 +110,31 @@ def _parse_local(path: Path, data: dict) -> LocalConfig:
     return LocalConfig(hostname_label=hostname_label, archive_queue_paths=queues)
 
 
-def _parse_synology(path: Path, data: dict) -> SynologyConfig | None:
-    raw = data.get("remote", {}).get("synology")
-    if not raw:
-        return None
-    for key in ("host", "user", "staging_dir"):
-        if not raw.get(key):
-            raise ConfigError(f"{path}: [remote.synology].{key} is required")
-    return SynologyConfig(host=raw["host"], user=raw["user"], staging_dir=raw["staging_dir"])
-
-
 def _parse_centos(path: Path, data: dict) -> CentosConfig | None:
     raw = data.get("remote", {}).get("centos")
     if not raw:
         return None
-    for key in ("host", "user", "archives_root"):
+    for key in ("host", "user", "masters_root"):
         if not raw.get(key):
             raise ConfigError(f"{path}: [remote.centos].{key} is required")
     return CentosConfig(
         host=raw["host"],
         user=raw["user"],
-        archives_root=raw["archives_root"],
-        host_from_synology=raw.get("host_from_synology"),
+        masters_root=raw["masters_root"],
+    )
+
+
+def _parse_basil(path: Path, data: dict) -> BasilConfig | None:
+    raw = data.get("remote", {}).get("basil")
+    if not raw:
+        return None
+    for key in ("host", "user", "uploads_root"):
+        if not raw.get(key):
+            raise ConfigError(f"{path}: [remote.basil].{key} is required")
+    return BasilConfig(
+        host=raw["host"],
+        user=raw["user"],
+        uploads_root=raw["uploads_root"],
     )
 
 

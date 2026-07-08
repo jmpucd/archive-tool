@@ -16,17 +16,13 @@ archive_queue_paths = [
   { label = "PortableSSD",  path = "/Volumes/PortableSSD/archive_queue" },
 ]
 
-[remote.synology]
-# How this machine reaches the Synology over SSH (Tailscale IP or hostname).
-host = "REPLACE_ME"
-user = "REPLACE_ME"
-staging_dir = "/volume1/Digitization_Files/archive-staging"
+# The archive flow rsyncs from this Mac to two destinations: the CentOS masters copy
+# (always) and, optionally, the basil Special Collections archive. No Synology.
 
 [remote.centos]
-# How this machine reaches the CentOS archives box. Used for the laptop's direct
-# SSH (collection picker, manifest verification). This can be a raw Tailscale
-# hostname/IP, or better, a ~/.ssh/config alias that fails over between Tailscale and
-# campus DNS so the tool works both on and off the campus VPN. Example alias:
+# CentOS holds John's master copies — every project is pushed here. `host` can be a raw
+# Tailscale hostname/IP, or better, a ~/.ssh/config alias that fails over between
+# Tailscale and campus DNS so the tool works both on and off the campus VPN. Example:
 #   Host digitization
 #       User <you>
 #       HostKeyAlias digitization
@@ -37,13 +33,14 @@ staging_dir = "/volume1/Digitization_Files/archive-staging"
 #       HostName <box>.library.ucdavis.edu
 host = "REPLACE_ME"
 user = "REPLACE_ME"
-archives_root = "/REPLACE_ME"   # absolute path to the archives root on CentOS
+masters_root = "/REPLACE_ME"   # masters land at <masters_root>/<collection-path>/<project>
 
-# How the *Synology* reaches CentOS. The second-leg rsync runs ON Synology and
-# pushes to CentOS, so it needs whatever address Synology can route to (usually
-# campus DNS, since Synology may not be on the tailnet for outbound peers).
-# Leave unset to fall back to `host`.
-host_from_synology = "REPLACE_ME.library.ucdavis.edu"
+[remote.basil]
+# basil is the Special Collections archive AND the destination-collection picker source.
+# The flow offers "Also send to basil?" (default yes); skip it for non-spec items.
+host = "REPLACE_ME"
+user = "REPLACE_ME"
+uploads_root = "/REPLACE_ME"    # projects land at <uploads_root>/<collection-path>/<project>
 
 [remote.box]
 # Optional Box upload. When set, the archive flow offers "Upload to Box?" after a
