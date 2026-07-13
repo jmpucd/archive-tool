@@ -139,6 +139,10 @@ def _run_archive_flow(yes: bool) -> None:
         "\nAlso send to basil (Special Collections)?", default=True
     )
 
+    # Collect the Box decision up front too, so nothing after "Proceed?" is interactive:
+    # every choice is made before the (long) rsync starts and the run finishes unattended.
+    box_wanted, share_intent = _prompt_box(cfg, yes)
+
     typer.echo()
     typer.echo("Plan:")
     typer.echo(f"  source:        {source.path}")
@@ -147,6 +151,14 @@ def _run_archive_flow(yes: bool) -> None:
         typer.echo(f"  basil archive:  {cfg.basil.user}@{cfg.basil.host}:{basil_final}")
     else:
         typer.echo("  basil archive:  (skipped)")
+    if box_wanted:
+        typer.echo(
+            f"  box upload:     {cfg.box.rclone_remote}"
+            f"{cfg.box.base_folder.rstrip('/')}/{source.path.name}"
+        )
+        typer.echo(f"  share manually: {share_intent or '(no one selected)'}")
+    else:
+        typer.echo("  box upload:     (skipped)")
     typer.echo()
     if not yes and not typer.confirm("Proceed?", default=False):
         typer.echo("aborted.")
@@ -154,7 +166,8 @@ def _run_archive_flow(yes: bool) -> None:
 
     try:
         _execute_transfer(
-            source.path, centos_final, basil_final, send_to_basil, cfg, yes
+            source.path, centos_final, basil_final, send_to_basil,
+            box_wanted, share_intent, cfg, yes,
         )
     except (transfer.TransferError, ssh.SSHError) as e:
         typer.echo(f"\nerror: {e}", err=True)
@@ -176,6 +189,8 @@ def _execute_transfer(
     centos_final: str,
     basil_final: str,
     send_to_basil: bool,
+    box_wanted: bool,
+    share_intent: str,
     cfg: config_mod.Config,
     yes: bool,
 ) -> None:
@@ -210,8 +225,11 @@ def _execute_transfer(
 
     mc = checksums.manifest_checksum(manifest_path)
 
-    # Box upload copies from the CentOS masters copy (always present).
-    box_path, share_with = _maybe_upload_to_box(source_path.name, centos_final, cfg, yes)
+    # Box upload copies from the CentOS masters copy (always present). The decision and
+    # share recipients were collected up front, so this step is non-interactive.
+    box_path, share_with = _do_box_upload(
+        source_path.name, centos_final, cfg, box_wanted, share_intent
+    )
 
     typer.echo("\n[log] recording turn-in to Google Sheet...")
     _log_to_sheet(source_path, centos_final, logged_basil, mc, cfg, box_path, share_with)
@@ -228,28 +246,44 @@ def _execute_transfer(
     typer.echo(f"  manifest checksum: {mc}")
 
 
-def _maybe_upload_to_box(
-    project: str, centos_final: str, cfg: config_mod.Config, yes: bool
-) -> tuple[str, str]:
-    """Optionally rclone the archived project to Box and collect share recipients.
+def _prompt_box(cfg: config_mod.Config, yes: bool) -> tuple[bool, str]:
+    """Ask up front whether to upload to Box and, if so, who to share with.
 
-    Returns (box_path, share_with_csv), both empty if skipped or on failure. Sharing on
-    Box is manual; this only uploads the files and records who to share with.
+    Collected before the transfer so the rest of the run is unattended. Returns
+    (box_wanted, share_with_csv). Sharing itself stays manual; we only record intent.
     """
     if cfg.box is None or yes:  # --yes is non-interactive; skip the optional Box prompt
+        return False, ""
+    if not typer.confirm("\nUpload to Box afterward?", default=False):
+        return False, ""
+    emails = pickers.pick_share_recipients() or []
+    return True, ", ".join(emails)
+
+
+def _do_box_upload(
+    project: str,
+    centos_final: str,
+    cfg: config_mod.Config,
+    box_wanted: bool,
+    share_intent: str,
+) -> tuple[str, str]:
+    """Run the pre-approved Box upload (non-interactive). Returns (box_path, share_with).
+
+    Both empty if Box was declined up front or the upload failed — the files are already
+    archived regardless, so a Box failure never aborts the run.
+    """
+    if not box_wanted or cfg.box is None:
         return "", ""
-    if not typer.confirm("\nUpload to Box?", default=False):
-        return "", ""
+    typer.echo("\n[box] rclone CentOS -> Box...")
     try:
         box_path = box_upload.upload_to_box(cfg.centos, centos_final, cfg.box, project)
     except box_upload.BoxUploadError as e:
         typer.echo(f"  warning: Box upload failed (project IS archived): {e}", err=True)
         return "", ""
-    emails = pickers.pick_share_recipients() or []
     typer.echo(f"  uploaded to {box_path}")
-    if emails:
-        typer.echo(f"  will share manually with: {', '.join(emails)}")
-    return box_path, ", ".join(emails)
+    if share_intent:
+        typer.echo(f"  will share manually with: {share_intent}")
+    return box_path, share_intent
 
 
 def _log_to_sheet(
