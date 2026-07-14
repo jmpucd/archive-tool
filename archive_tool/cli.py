@@ -213,10 +213,25 @@ def _execute_transfer(
     logged_basil = ""
     if send_to_basil:
         n += 1
-        typer.echo(f"\n[{n}/{steps}] rsync Mac -> basil archive (+ verify)...")
-        transfer.push_to_remote(
-            source_path, cfg.basil.host, cfg.basil.user, basil_final, make_parents=True
-        )
+        if cfg.centos.host_from_basil:
+            # basil pulls the just-landed CentOS masters copy (CentOS->basil is firewalled,
+            # so a Mac->basil push is the only push that works — but a basil-side pull over
+            # the open basil->CentOS path is rack-speed and avoids re-uploading from the Mac).
+            typer.echo(f"\n[{n}/{steps}] rsync CentOS -> basil (pull on basil)...")
+            transfer.pull_from_remote(
+                puller_host=cfg.basil.host,
+                puller_user=cfg.basil.user,
+                src_host=cfg.centos.host_from_basil,
+                src_user=cfg.centos.user,
+                src_path=centos_final,
+                dest_path=basil_final,
+                make_parents=True,
+            )
+        else:
+            typer.echo(f"\n[{n}/{steps}] rsync Mac -> basil archive...")
+            transfer.push_to_remote(
+                source_path, cfg.basil.host, cfg.basil.user, basil_final, make_parents=True
+            )
         n += 1
         typer.echo(f"\n[{n}/{steps}] verifying manifest on basil...")
         transfer.verify_manifest_remote(cfg.basil.host, cfg.basil.user, basil_final)

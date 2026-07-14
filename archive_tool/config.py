@@ -27,6 +27,10 @@ class CentosConfig:
     host: str          # how the Mac reaches CentOS (ssh alias / Tailscale / campus DNS)
     user: str
     masters_root: str  # where John's master copies land, e.g. /digitization/Final_Output_Masters_Backup
+    # How *basil* reaches CentOS, when set (campus DNS — basil can't use the Mac's
+    # `digitization` ssh alias / Tailscale). If present, the basil leg becomes a
+    # CentOS->basil PULL run on basil; if absent, it falls back to a Mac->basil push.
+    host_from_basil: str | None = None
 
 
 @dataclass(frozen=True)
@@ -121,6 +125,7 @@ def _parse_centos(path: Path, data: dict) -> CentosConfig | None:
         host=raw["host"],
         user=raw["user"],
         masters_root=raw["masters_root"],
+        host_from_basil=raw.get("host_from_basil") or None,
     )
 
 

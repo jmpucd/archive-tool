@@ -34,6 +34,11 @@ archive_queue_paths = [
 host = "REPLACE_ME"
 user = "REPLACE_ME"
 masters_root = "/REPLACE_ME"   # masters land at <masters_root>/<collection-path>/<project>
+# Optional. How basil reaches CentOS — a name basil can resolve (campus DNS), NOT the
+# `host` alias above (that's Mac-only). When set, the basil leg becomes a CentOS->basil
+# pull run on basil (rack-speed, avoids a second Mac upload) instead of a Mac->basil push.
+# Requires basil's key authorized on CentOS + basil->CentOS SSH reachable.
+# host_from_basil = "<box>.library.ucdavis.edu"
 
 [remote.basil]
 # basil is the Special Collections archive AND the destination-collection picker source.

@@ -28,6 +28,35 @@ def push_to_remote(
     _run_local(_rsync_args() + [f"{source}/", target])
 
 
+def pull_from_remote(
+    puller_host: str,
+    puller_user: str,
+    src_host: str,
+    src_user: str,
+    src_path: str,
+    dest_path: str,
+    make_parents: bool = False,
+) -> None:
+    """Rsync `src_path` -> `dest_path` with the rsync process running ON `puller_host`.
+
+    Used for the basil leg: basil PULLS the already-landed masters copy from CentOS.
+    (basil->CentOS:22 is open; CentOS->basil is firewalled, so a push won't work.) The
+    rsync runs over the puller's own ssh, so `src_host` must be a name the puller can
+    resolve/reach — CentOS's campus DNS, not the Mac's `digitization` ssh alias — and the
+    puller's key must be authorized on src_host.
+
+    basil's rsync is 3.0.6, which predates `--info=progress2` (3.1.0), so this uses the
+    3.0-safe arg set (plain `--progress`) and `--protect-args` so spaces in project names
+    survive the extra remote-shell hop.
+    """
+    tokens = _rsync_args(progress2=False, protect_args=True)
+    tokens.append(f"{src_user}@{src_host}:{src_path}/")
+    tokens.append(f"{dest_path}/")
+    rsync_cmd = " ".join(shlex.quote(t) for t in tokens)
+    prefix = f"mkdir -p {shlex.quote(dest_path)} && " if make_parents else ""
+    ssh.run_remote_streaming(puller_host, puller_user, prefix + rsync_cmd)
+
+
 def verify_manifest_remote(host: str, user: str, project_path: str) -> None:
     """Run `md5sum -c --quiet manifest.md5` in project_path on the remote.
 
@@ -52,7 +81,7 @@ def verify_manifest_remote(host: str, user: str, project_path: str) -> None:
         )
 
 
-def _rsync_args() -> list[str]:
+def _rsync_args(progress2: bool = True, protect_args: bool = False) -> list[str]:
     args = [
         "rsync",
         "-a",                # archive mode (recursive, symlinks, perms, times, devices)
@@ -61,8 +90,13 @@ def _rsync_args() -> list[str]:
         "--partial",         # keep partial transfers for resume
         "--append-verify",   # resume by appending, then verifying the existing chunk
         "-h",
-        "--info=progress2",
     ]
+    if protect_args:
+        # -s: don't let the remote shell re-split paths; needed for spaces in project
+        # names when rsync itself runs on a remote host (the basil pull).
+        args.append("--protect-args")
+    # --info=progress2 (overall %) needs rsync 3.1.0+; basil's 3.0.6 only has --progress.
+    args.append("--info=progress2" if progress2 else "--progress")
     for ex in EXCLUDES:
         args += [f"--exclude={ex}"]
     return args
