@@ -55,15 +55,19 @@ def pick_project(projects: list[Project]) -> Project | None:
     ).ask()
 
 
-def pick_collection_path(host: str, user: str, root: str) -> str | None:
+def pick_collection_path(
+    host: str, user: str, root: str, auto_creates: bool = False
+) -> str | None:
     """Two-level remote picker over SSH.
 
     Lists top-level dirs under root. If the picked dir matches `*-Collections`,
     recurses one level and offers a "new collection" option. Otherwise returns the
     picked top-level path directly. Returns None if the user cancels.
 
-    Does not create any directories. If "new collection" is chosen, the path is returned
-    along with a stderr note that the user must mkdir it manually before transferring.
+    Does not create any directories itself. If "new collection" is chosen, the path is
+    returned along with a stderr note — either that it'll be auto-created on transfer
+    (auto_creates=True, e.g. CentOS's organic tree), or that the user must mkdir it
+    manually first (auto_creates=False, e.g. basil, which never auto-spawns collections).
     """
     parents = ssh.list_dirs(host, user, root)
     if not parents:
@@ -98,7 +102,7 @@ def pick_collection_path(host: str, user: str, root: str) -> str | None:
         return None
 
     if child == NEW_COLLECTION_LABEL:
-        return _prompt_new_collection(host, user, parent, parent_path)
+        return _prompt_new_collection(host, user, parent, parent_path, auto_creates)
 
     return f"{parent_path}/{child}"
 
@@ -150,25 +154,36 @@ def _prompt_new_emails() -> list[str] | None:
     return out
 
 
-def _prompt_new_collection(host: str, user: str, parent: str, parent_path: str) -> str | None:
+def _prompt_new_collection(
+    host: str, user: str, parent: str, parent_path: str, auto_creates: bool
+) -> str | None:
     prefix = parent.removesuffix("-Collections")
-    pattern = re.compile(rf"^{re.escape(prefix)}-\d+$")
+    # Base ID (digits) plus optional appended name(s), e.g. D-492 or D-492_Snyder or
+    # D-738_Chicago_Cafe — an underscore-joined suffix after the number, not a dash.
+    pattern = re.compile(rf"^{re.escape(prefix)}-\d+(_[A-Za-z0-9]+)*$")
 
     def validate(v: str) -> bool | str:
-        return True if pattern.match(v) else f"must look like {prefix}-NNN (digits only)"
+        return (
+            True
+            if pattern.match(v)
+            else f"must look like {prefix}-NNN or {prefix}-NNN_Name (digits, optional _name)"
+        )
 
     new_id = questionary.text(
-        f"New collection ID (e.g. {prefix}-450):",
+        f"New collection ID (e.g. {prefix}-450 or {prefix}-450_Name):",
         validate=validate,
     ).ask()
     if new_id is None:
         return None
 
     new_path = f"{parent_path}/{new_id}"
-    typer.echo(
-        f"\nNote: {new_path} does not exist yet on {host}.\n"
-        f"Create it manually before transferring:\n"
-        f"  ssh {user}@{host} mkdir {new_path}\n",
-        err=True,
-    )
+    if auto_creates:
+        typer.echo(f"\nNote: {new_path} doesn't exist yet on {host} — it'll be created automatically.", err=True)
+    else:
+        typer.echo(
+            f"\nNote: {new_path} does not exist yet on {host}.\n"
+            f"Create it manually before transferring:\n"
+            f"  ssh {user}@{host} mkdir {new_path}\n",
+            err=True,
+        )
     return new_path

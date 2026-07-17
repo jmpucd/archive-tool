@@ -109,36 +109,58 @@ def _run_archive_flow(yes: bool) -> None:
     if source is None:
         raise typer.Exit(130)
 
-    # Pick the destination collection from basil's real tree. This sets the filing path
-    # used for BOTH the CentOS masters copy and (optionally) the basil copy.
-    try:
-        basil_parent = pickers.pick_collection_path(
-            cfg.basil.host, cfg.basil.user, cfg.basil.uploads_root
-        )
-    except ssh.SSHError as e:
-        typer.echo(f"error: {e}", err=True)
-        raise typer.Exit(3)
-    if basil_parent is None:
-        raise typer.Exit(130)
-
-    # basil is the picker source, so refuse a "+ new collection" path that doesn't exist
-    # yet — we don't auto-spawn phantom collections there (the picker printed a mkdir hint).
-    if not ssh.path_exists(cfg.basil.host, cfg.basil.user, basil_parent):
-        typer.echo(
-            f"\nerror: {basil_parent} does not exist on basil. Create it manually first.",
-            err=True,
-        )
-        raise typer.Exit(2)
-
-    project_name = source.path.name
-    rel = _relpath(basil_parent, cfg.basil.uploads_root)
-    centos_final = f"{cfg.centos.masters_root.rstrip('/')}/{rel}/{project_name}"
-    basil_final = f"{basil_parent.rstrip('/')}/{project_name}"
-
-    # basil is optional (some items aren't for Special Collections); default yes.
+    # Ask up front whether this goes to basil at all — decides which tree we pick the
+    # destination collection from below. basil is optional (some items aren't for
+    # Special Collections); default yes.
     send_to_basil = yes or typer.confirm(
         "\nAlso send to basil (Special Collections)?", default=True
     )
+
+    project_name = source.path.name
+    basil_final = ""
+
+    if send_to_basil:
+        # Pick from basil's real tree. This sets the filing path used for BOTH the
+        # CentOS masters copy and the basil copy, so both land in the same collection.
+        try:
+            basil_parent = pickers.pick_collection_path(
+                cfg.basil.host, cfg.basil.user, cfg.basil.uploads_root
+            )
+        except ssh.SSHError as e:
+            typer.echo(f"error: {e}", err=True)
+            raise typer.Exit(3)
+        if basil_parent is None:
+            raise typer.Exit(130)
+
+        # basil is the picker source here, so refuse a "+ new collection" path that
+        # doesn't exist yet — we don't auto-spawn phantom collections there (the
+        # picker printed a mkdir hint).
+        if not ssh.path_exists(cfg.basil.host, cfg.basil.user, basil_parent):
+            typer.echo(
+                f"\nerror: {basil_parent} does not exist on basil. Create it manually first.",
+                err=True,
+            )
+            raise typer.Exit(2)
+
+        rel = _relpath(basil_parent, cfg.basil.uploads_root)
+        basil_final = f"{basil_parent.rstrip('/')}/{project_name}"
+    else:
+        # Not going to basil at all, so pick the collection path from CentOS's own
+        # tree instead. Unlike basil, CentOS's masters tree is organic and auto-mkdir's
+        # on transfer, so a brand new collection there is never a "phantom folder"
+        # problem — no existence check needed.
+        try:
+            centos_parent = pickers.pick_collection_path(
+                cfg.centos.host, cfg.centos.user, cfg.centos.masters_root, auto_creates=True
+            )
+        except ssh.SSHError as e:
+            typer.echo(f"error: {e}", err=True)
+            raise typer.Exit(3)
+        if centos_parent is None:
+            raise typer.Exit(130)
+        rel = _relpath(centos_parent, cfg.centos.masters_root)
+
+    centos_final = f"{cfg.centos.masters_root.rstrip('/')}/{rel}/{project_name}"
 
     # Collect the Box decision up front too, so nothing after "Proceed?" is interactive:
     # every choice is made before the (long) rsync starts and the run finishes unattended.
