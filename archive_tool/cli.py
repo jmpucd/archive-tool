@@ -145,16 +145,12 @@ def _run_archive_flow(yes: bool) -> None:
     box_wanted, share_intent = _prompt_box(cfg, yes)
 
     # Same up-front treatment for source deletion: decide now, act only after every
-    # destination this run actually uses has verified. Never prompted under --yes;
-    # non-interactive runs fall back to the configured default so scripted use is
-    # opt-in, not an accidental silent delete.
-    delete_source = (
-        cfg.local.delete_source_default
-        if yes
-        else typer.confirm(
-            "\nDelete the local source once it's verified on every destination above?",
-            default=cfg.local.delete_source_default,
-        )
+    # destination this run actually uses has verified. Defaults to yes everywhere,
+    # same as send_to_basil above - the whole point of this tool is freeing local
+    # disk space once a project is safely archived.
+    delete_source = yes or typer.confirm(
+        "\nDelete the local source once it's verified on every destination above?",
+        default=True,
     )
 
     typer.echo()
