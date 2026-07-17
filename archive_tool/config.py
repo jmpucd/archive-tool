@@ -20,6 +20,10 @@ class ArchiveQueue:
 class LocalConfig:
     hostname_label: str
     archive_queue_paths: list[ArchiveQueue]
+    # Default answer offered for "delete local source after verify?". Only ever acts
+    # after every destination the run actually used (CentOS always, basil if sent)
+    # has had its manifest verified remotely — see cli._execute_transfer.
+    delete_source_default: bool = False
 
 
 @dataclass(frozen=True)
@@ -111,7 +115,11 @@ def _parse_local(path: Path, data: dict) -> LocalConfig:
             ArchiveQueue(label=q["label"], path=Path(q["path"]).expanduser())
         )
 
-    return LocalConfig(hostname_label=hostname_label, archive_queue_paths=queues)
+    return LocalConfig(
+        hostname_label=hostname_label,
+        archive_queue_paths=queues,
+        delete_source_default=bool(local_raw.get("delete_source_default", False)),
+    )
 
 
 def _parse_centos(path: Path, data: dict) -> CentosConfig | None:

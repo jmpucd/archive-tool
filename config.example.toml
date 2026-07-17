@@ -16,6 +16,14 @@ archive_queue_paths = [
   { label = "PortableSSD",  path = "/Volumes/PortableSSD/archive_queue" },
 ]
 
+# Default answer for "delete the local source once it's verified on every destination
+# this run used?" (CentOS always; basil too, if you sent it there). The flow still asks
+# up front every time unless you pass --yes, in which case this value is used directly
+# with no prompt. Deletion always runs LAST, after every manifest verification for the
+# destinations this run used has already succeeded — never before, never on a partial
+# run. Leave false if you'd rather delete manually after checking the archive yourself.
+delete_source_default = false
+
 # The archive flow rsyncs from this Mac to two destinations: the CentOS masters copy
 # (always) and, optionally, the basil Special Collections archive. No Synology.
 

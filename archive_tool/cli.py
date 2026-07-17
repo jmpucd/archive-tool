@@ -1,3 +1,4 @@
+import shutil
 from pathlib import Path
 
 import typer
@@ -143,6 +144,19 @@ def _run_archive_flow(yes: bool) -> None:
     # every choice is made before the (long) rsync starts and the run finishes unattended.
     box_wanted, share_intent = _prompt_box(cfg, yes)
 
+    # Same up-front treatment for source deletion: decide now, act only after every
+    # destination this run actually uses has verified. Never prompted under --yes;
+    # non-interactive runs fall back to the configured default so scripted use is
+    # opt-in, not an accidental silent delete.
+    delete_source = (
+        cfg.local.delete_source_default
+        if yes
+        else typer.confirm(
+            "\nDelete the local source once it's verified on every destination above?",
+            default=cfg.local.delete_source_default,
+        )
+    )
+
     typer.echo()
     typer.echo("Plan:")
     typer.echo(f"  source:        {source.path}")
@@ -159,6 +173,10 @@ def _run_archive_flow(yes: bool) -> None:
         typer.echo(f"  share manually: {share_intent or '(no one selected)'}")
     else:
         typer.echo("  box upload:     (skipped)")
+    if delete_source:
+        typer.echo("  delete source:  yes, once verified everywhere above")
+    else:
+        typer.echo("  delete source:  no (kept locally)")
     typer.echo()
     if not yes and not typer.confirm("Proceed?", default=False):
         typer.echo("aborted.")
@@ -167,7 +185,7 @@ def _run_archive_flow(yes: bool) -> None:
     try:
         _execute_transfer(
             source.path, centos_final, basil_final, send_to_basil,
-            box_wanted, share_intent, cfg, yes,
+            box_wanted, share_intent, delete_source, cfg, yes,
         )
     except (transfer.TransferError, ssh.SSHError) as e:
         typer.echo(f"\nerror: {e}", err=True)
@@ -191,6 +209,7 @@ def _execute_transfer(
     send_to_basil: bool,
     box_wanted: bool,
     share_intent: str,
+    delete_source: bool,
     cfg: config_mod.Config,
     yes: bool,
 ) -> None:
@@ -249,6 +268,20 @@ def _execute_transfer(
     typer.echo("\n[log] recording turn-in to Google Sheet...")
     _log_to_sheet(source_path, centos_final, logged_basil, mc, cfg, box_path, share_with)
 
+    # Deletion is the last thing that happens, and only reachable here because every
+    # destination the run actually used (CentOS always, basil above if selected) already
+    # verified its manifest remotely without raising. Box upload/sheet logging are not a
+    # precondition — they're best-effort and never gate whether the archive is safe.
+    deleted = False
+    if delete_source:
+        typer.echo(
+            f"\n[cleanup] source verified on centos"
+            f"{' + basil' if logged_basil else ''}; deleting local copy..."
+        )
+        shutil.rmtree(source_path)
+        deleted = True
+        typer.echo(f"  removed {source_path}")
+
     typer.echo()
     typer.echo("done.")
     typer.echo(f"  centos masters:    {cfg.centos.user}@{cfg.centos.host}:{centos_final}")
@@ -259,6 +292,7 @@ def _execute_transfer(
         if share_with:
             typer.echo(f"  share manually with: {share_with}")
     typer.echo(f"  manifest checksum: {mc}")
+    typer.echo(f"  local source:      {'deleted' if deleted else source_path}")
 
 
 def _prompt_box(cfg: config_mod.Config, yes: bool) -> tuple[bool, str]:
