@@ -1,8 +1,30 @@
 #!/bin/sh
-# Entry point for the orchestrator. Runs via uv from the repo's venv,
-# so no manual `source .venv/bin/activate` is needed.
-# Prepend ~/.local/bin so uv is found whether installed via brew (already
-# on PATH) or via the standalone installer (lands in ~/.local/bin).
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PATH="$HOME/.local/bin:$PATH"
-exec uv run --project "$SCRIPT_DIR/.." archive-project "$@"
+# Entry point for the orchestrator.
+#
+# Runs the CLI through `uv run`, which creates/updates the repo's .venv on the
+# fly — so there is never anything to `source` or `pip install` by hand.
+#
+# Safe to symlink onto your PATH (see README "Install"); the loop below follows
+# symlinks back to the real repo so --project always points at the checkout.
+
+PATH="$HOME/.local/bin:$PATH"   # find uv whether installed via brew or the standalone installer
+
+# Resolve this script through any chain of symlinks to its real location.
+SELF="$0"
+while [ -L "$SELF" ]; do
+  TARGET="$(readlink "$SELF")"
+  case "$TARGET" in
+    /*) SELF="$TARGET" ;;
+    *)  SELF="$(dirname "$SELF")/$TARGET" ;;
+  esac
+done
+REPO_DIR="$(cd "$(dirname "$SELF")/.." && pwd)"
+
+if ! command -v uv >/dev/null 2>&1; then
+  echo "archive-project: uv is not installed." >&2
+  echo "  Install it with:  brew install uv" >&2
+  echo "  (or: curl -LsSf https://astral.sh/uv/install.sh | sh)" >&2
+  exit 127
+fi
+
+exec uv run --project "$REPO_DIR" archive-project "$@"

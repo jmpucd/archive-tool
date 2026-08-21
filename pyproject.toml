@@ -1,7 +1,7 @@
 [project]
 name = "archive-tool"
 version = "0.1.0"
-description = "Push finished digitization projects from any machine through Synology to CentOS, with Box sharing tracked in a Google Sheet."
+description = "Push finished digitization projects from a Mac to the CentOS masters and the basil Special Collections archive, with Box uploads tracked in a Google Sheet."
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "John Pike" }]
