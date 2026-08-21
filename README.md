@@ -121,16 +121,38 @@ ssh -o BatchMode=yes basil.lib.ucdavis.edu true && echo "basil ok"
 
 ## Preparing a project to archive
 
-The source picker only lists folders inside a configured `archive_queue` directory
-that contain an `.archive-source` marker file:
+Projects are picked up from an **archive queue** — a folder listed under
+`archive_queue_paths` in your config. On the laptop that's:
+
+```
+/Users/jmpike/archive_queue/
+```
+
+No external drive is required; the `/Volumes/...` queues in the config are silently
+skipped whenever those drives aren't mounted.
+
+A queue folder needs one `.archive-source` marker file, created once:
 
 ```sh
 mkdir -p ~/archive_queue
 touch ~/archive_queue/.archive-source
 ```
 
-Then drop finished project folders into `~/archive_queue/`. Queue paths on unmounted
-drives are skipped silently.
+**The marker goes in the queue folder itself, not in each project.** After that, any
+folder you drop directly inside the queue shows up in the picker:
+
+```
+~/archive_queue/
+├── .archive-source          <- marker, once
+├── MC-247_ledgers/          <- a project
+└── D-014_diaries/           <- another project
+```
+
+Only the immediate children are scanned — nested folders below a project are just part
+of that project. Dotfiles are ignored.
+
+If the picker says `No projects found in any mounted archive_queue`, it now prints each
+configured queue and why it was skipped.
 
 ---
 
@@ -175,4 +197,4 @@ doesn't exist yet, the picker prints the `mkdir` command to run by hand.
 | `unknown option --append-verify` / `--info=progress2` | You're on Apple's `openrsync`. `brew install rsync` and confirm `command -v rsync` is the Homebrew path. |
 | `Permission denied (publickey)` on basil | basil can't use ed25519 — use an RSA key and the `+ssh-rsa` overrides above. |
 | SSH to CentOS hangs or fails only on VPN (or only off it) | You're using a raw Tailscale IP. Switch to the failover `digitization` alias. |
-| `No projects found in any mounted archive_queue` | The `.archive-source` marker file is missing, or the drive isn't mounted. |
+| `No projects found in any mounted archive_queue` | The command lists each configured queue and why it was skipped. Usually: the queue is empty, the `.archive-source` marker is missing from the *queue* folder, or that drive isn't mounted. |

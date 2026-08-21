@@ -44,8 +44,7 @@ def pick_source() -> None:
     cfg = _load_config()
     projects = pickers.scan_archive_queues(cfg.local.archive_queue_paths)
     if not projects:
-        typer.echo("No projects found in any mounted archive_queue.", err=True)
-        raise typer.Exit(1)
+        _report_no_projects(cfg)
     selected = pickers.pick_project(projects)
     if selected is None:
         raise typer.Exit(130)
@@ -91,6 +90,28 @@ def add_collaborator(
     typer.echo(f"{'added' if was_new else 'already present'}: {collab.label()}")
 
 
+def _report_no_projects(cfg: config_mod.Config) -> None:
+    """Explain *why* nothing was found and where to put a project. Always exits."""
+    typer.echo("No projects found in any mounted archive_queue.\n", err=True)
+    typer.echo("Configured queues:", err=True)
+    for q in cfg.local.archive_queue_paths:
+        if not q.path.exists():
+            state = "not mounted / does not exist - skipped"
+        elif not (q.path / ".archive-source").exists():
+            state = "missing .archive-source marker - skipped"
+        else:
+            state = "ready, but empty"
+        typer.echo(f"  [{q.label}] {q.path}  ({state})", err=True)
+    typer.echo(
+        "\nA project is any folder placed directly inside a ready queue, e.g."
+        f"\n  {cfg.local.archive_queue_paths[0].path}/MyProject/"
+        "\nThe .archive-source marker belongs in the queue folder itself, not in each project."
+        f"\n\nEdit archive_queue_paths in {cfg.source_path} to add or change queue locations.",
+        err=True,
+    )
+    raise typer.Exit(1)
+
+
 def _run_archive_flow(yes: bool) -> None:
     cfg = _load_config()
     if cfg.centos is None or cfg.basil is None:
@@ -103,8 +124,7 @@ def _run_archive_flow(yes: bool) -> None:
     # Pick source.
     projects = pickers.scan_archive_queues(cfg.local.archive_queue_paths)
     if not projects:
-        typer.echo("No projects found in any mounted archive_queue.", err=True)
-        raise typer.Exit(1)
+        _report_no_projects(cfg)
     source = pickers.pick_project(projects)
     if source is None:
         raise typer.Exit(130)
