@@ -197,8 +197,24 @@ Builds one searchable PDF and one paged plain-text transcript for a project that
 - If the row has a Box path, the files are rclone-copied into that Box folder;
   otherwise it asks whether to create `box:Archives/<project>` holding just the OCR
   files (`--box` / `--no-box` to decide without asking).
-- Records `OCR files`, `OCR on` (centos/basil/box) and `OCR date` on the row — the
-  files sit inside the folders named in the row's CentOS/Basil/Box path columns.
+- Records `Derivatives`, `Derivatives on` (centos/basil/box) and `Derivatives date` on
+  the row — the files sit inside the folders named in the row's CentOS/Basil/Box path
+  columns. `--skip-basil` leaves basil for a later re-run; re-runs reuse the existing
+  outputs on CentOS and only redo the copies (`--force` re-OCRs). Note the basil leg
+  needs the Mac to reach basil (campus/VPN) even though the bytes flow CentOS->basil:
+  the pull is started over ssh on basil.
+
+### JPEG access copies
+
+```sh
+archive-project jpeg -p D-738_044 --yes        # rectos only, quality 80, full resolution
+archive-project jpeg --match "" -q 85          # every page
+```
+
+Same pattern as `ocr`: converts on CentOS (Pillow, ICC profile + DPI preserved, no
+resizing) into `<project>/JPEG/`, pulls that folder to basil and copies it to Box
+wherever the project lives, and adds e.g. `JPEG/ (33 recto JPEG q80)` to the row's
+`Derivatives` column.
 
 The transcript is Tesseract output as-is (uncorrected), one `Page N of M - <file>`
 header per image in filename order. `--min-conf` (default 30) drops low-confidence
@@ -212,6 +228,7 @@ in the Sheet (nothing gets logged).
 | --- | --- |
 | `archive-project` | the full archive flow |
 | `archive-project ocr` | searchable PDF + transcript for an archived project (see above) |
+| `archive-project jpeg` | full-res JPEG access copies (rectos by default) into `<project>/JPEG/` everywhere the project lives |
 | `archive-project to-basil` | send a project that was archived without basil there after the fact: basil pulls the whole CentOS folder (masters, manifest, OCR files), verifies the manifest, fills in the row's Basil path |
 | `archive-project pick-source` | pick a local project and print its path (debug) |
 | `archive-project pick-dest` | pick a basil collection folder and print it (debug) |

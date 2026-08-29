@@ -66,11 +66,23 @@ def list_dirs(host: str, user: str, path: str) -> list[str]:
     return [line for line in out.splitlines() if line]
 
 
-def path_exists(host: str, user: str, path: str) -> bool:
-    """True iff `path` exists on the remote host (file or dir)."""
+def path_exists(host: str, user: str, path: str, strict: bool = False) -> bool:
+    """True iff `path` exists on the remote host (file or dir).
+
+    With strict=True an ssh failure (host unreachable, auth) raises SSHError instead of
+    reading as "doesn't exist" — use it before acting on a negative answer.
+    """
     target = f"{user}@{host}"
     result = subprocess.run(
         ["ssh", *_BASE_OPTS, target, f"test -e {shlex.quote(path)}"],
         capture_output=True,
+        text=True,
     )
-    return result.returncode == 0
+    if result.returncode == 0:
+        return True
+    if strict and result.returncode != 1:  # `test` itself exits 1; ssh errors exit 255
+        raise SSHError(
+            f"ssh {target} failed (exit {result.returncode}): "
+            f"{result.stderr.strip() or '(no stderr)'}"
+        )
+    return False

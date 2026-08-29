@@ -30,13 +30,18 @@ COLUMNS = [
     "Share with",
     "Box path",
     "Shared date",
-    # OCR derivatives (`archive-project ocr`), appended 2026-08: the files live INSIDE the
-    # project folder on each destination listed in "OCR on" (the same CentOS/Basil/Box
-    # paths recorded above), so those three columns say where everything went.
-    "OCR files",
-    "OCR on",
-    "OCR date",
+    # Derivatives (`archive-project ocr` / `jpeg`), appended 2026-08: what was made
+    # (e.g. "X.pdf, X_transcript.txt, JPEG/ (33 recto JPEG q80)") and where it lives -
+    # INSIDE the project folder on each destination in "Derivatives on" (the CentOS/
+    # Basil/Box paths recorded above). So these three columns say where everything went.
+    "Derivatives",
+    "Derivatives on",
+    "Derivatives date",
 ]
+
+# Old header names that ensure_header silently upgrades in place (same position, same
+# meaning, just renamed).
+_RENAMED = {"OCR files": "Derivatives", "OCR on": "Derivatives on", "OCR date": "Derivatives date"}
 
 STATUS_ARCHIVED = "archived, not shared"
 STATUS_ON_BOX = "on box, share manually"  # uploaded to Box; John adds collaborators by hand
@@ -66,8 +71,10 @@ def open_worksheet(google: GoogleConfig) -> "gspread.Worksheet":
 def ensure_header(ws: "gspread.Worksheet") -> None:
     """Write the header row if the sheet is empty, extend it when new trailing columns
     were added to COLUMNS, and refuse to touch anything else (reordered/renamed)."""
-    existing = ws.row_values(1)
+    existing = [_RENAMED.get(h, h) for h in ws.row_values(1)]
     if existing == COLUMNS:
+        if existing != ws.row_values(1):
+            ws.update(values=[COLUMNS], range_name="A1")  # apply the renames
         return
     if existing and COLUMNS[: len(existing)] == existing:
         # Schema grew (new columns appended). Rewrite the header in place; existing

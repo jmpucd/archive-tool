@@ -8,6 +8,7 @@ from archive_tool import box_upload
 from archive_tool import checksums
 from archive_tool import collaborators as collaborators_mod
 from archive_tool import config as config_mod
+from archive_tool import jpeg as jpeg_mod
 from archive_tool import ocr as ocr_mod
 from archive_tool import pickers
 from archive_tool import sheet
@@ -116,8 +117,14 @@ def ocr_command(
         None, "--box/--no-box",
         help="copy the OCR files to Box (default: yes if the project is on Box, else ask)",
     ),
+    skip_basil: bool = typer.Option(
+        False, "--skip-basil", help="don't pull to basil this run (e.g. basil unreachable); re-run later"
+    ),
+    force: bool = typer.Option(
+        False, "--force", help="re-run OCR even if the outputs already exist on CentOS"
+    ),
     yes: bool = typer.Option(
-        False, "--yes", "-y", help="skip prompts; overwrite existing outputs"
+        False, "--yes", "-y", help="skip prompts (existing outputs are reused unless --force)"
     ),
 ) -> None:
     """Build a searchable PDF + paged OCR transcript for an archived project.
@@ -125,14 +132,13 @@ def ocr_command(
     Runs digtk (Tesseract) on CentOS against the masters copy, writes
     <project>.pdf and <project>_transcript.txt INTO the project folder there, then
     pulls them to basil and copies them to Box wherever that project already lives,
-    and records "OCR files / OCR on / OCR date" on the project's Sheet row.
+    and records them in the Derivatives columns of the project's Sheet row.
     """
     cfg = _load_config()
     if cfg.centos is None:
         typer.echo("error: [remote.centos] is required for OCR", err=True)
         raise typer.Exit(2)
 
-    ws = None
     row: dict = {}
     if centos_path:
         centos_final = centos_path.rstrip("/")
@@ -147,25 +153,7 @@ def ocr_command(
                 err=True,
             )
             raise typer.Exit(2)
-        try:
-            ws = sheet.open_worksheet(cfg.google)
-            rows = sheet.list_projects(ws)
-        except sheet.SheetError as e:
-            typer.echo(f"error: {e}", err=True)
-            raise typer.Exit(3)
-        if not rows:
-            typer.echo("error: the Sheet has no archived projects yet", err=True)
-            raise typer.Exit(1)
-        if project:
-            matches = [r for r in rows if r["Project name"] == project]
-            if not matches:
-                typer.echo(f"error: no Sheet row with Project name {project!r}", err=True)
-                raise typer.Exit(1)
-            row = matches[0]
-        else:
-            row = pickers.pick_sheet_project(rows)
-            if row is None:
-                raise typer.Exit(130)
+        row = _pick_row(cfg, project, "Pick an archived project to OCR")
         project_name = str(row["Project name"])
         centos_final = str(row["CentOS path"])
         basil_final = str(row["Basil path"])
@@ -180,31 +168,15 @@ def ocr_command(
     # Decide everything up front, then run unattended (same shape as the archive flow).
     rerun = True
     if ocr_mod.outputs_exist(cfg.centos, centos_final, d):
-        rerun = yes or typer.confirm(
+        rerun = force or (not yes and typer.confirm(
             f"\n{d.pdf} already exists on CentOS. Re-run OCR and overwrite it?",
             default=False,
-        )
-    send_basil = bool(basil_final)
+        ))
+    send_basil = bool(basil_final) and not skip_basil
     if send_basil and cfg.basil is None:
         typer.echo("error: project is on basil but [remote.basil] isn't configured", err=True)
         raise typer.Exit(2)
-    if box is None:
-        if cfg.box is None:
-            box = False
-        elif box_path:
-            box = True
-        else:
-            box = yes or typer.confirm(
-                "\nProject isn't on Box. Put just the OCR files in "
-                f"{ocr_mod.box_target_for(cfg.box, project_name)}?",
-                default=True,
-            )
-    box_target = ""
-    if box:
-        if cfg.box is None:
-            typer.echo("error: --box needs [remote.box] in config", err=True)
-            raise typer.Exit(2)
-        box_target = box_path or ocr_mod.box_target_for(cfg.box, project_name)
+    box_target = _decide_box(cfg, box, box_path, project_name, yes, what="the OCR files")
 
     typer.echo()
     typer.echo("Plan:")
@@ -216,9 +188,11 @@ def ocr_command(
     )
     typer.echo(f"  outputs:        {d.pdf}, {d.transcript}  (inside the project folder)")
     typer.echo(
-        f"  basil:          {basil_final if send_basil else '(project not on basil - skipped)'}"
+        "  basil:          "
+        + (basil_final if send_basil else
+           ("(skipped this run)" if basil_final else "(project not on basil - skipped)"))
     )
-    typer.echo(f"  box:            {box_target if box else '(skipped)'}")
+    typer.echo(f"  box:            {box_target or '(skipped)'}")
     typer.echo(f"  sheet:          {'update row ' + str(row['_row']) if row else '(not logged)'}")
     typer.echo()
     if not yes and not typer.confirm("Proceed?", default=False):
@@ -239,7 +213,7 @@ def ocr_command(
             ocr_mod.pull_to_basil(cfg.centos, cfg.basil, centos_final, basil_final, d)
             typer.echo("  ok")
             where.append("basil")
-        if box:
+        if box_target:
             typer.echo(f"\n[box] rclone CentOS -> {box_target}...")
             ocr_mod.copy_to_box(cfg.centos, cfg.box, centos_final, box_target, d)
             typer.echo("  ok")
@@ -248,10 +222,10 @@ def ocr_command(
         typer.echo(f"\nerror: {e}", err=True)
         if where:
             typer.echo(f"  OCR files are in place on: {', '.join(where)}", err=True)
-        _log_ocr(ws, row, d, where, box_target if "box" in where else "")
+            _log_derivatives(row, d.names, where, box_target if "box" in where else "")
         raise typer.Exit(4)
 
-    _log_ocr(ws, row, d, where, box_target if "box" in where else "")
+    _log_derivatives(row, d.names, where, box_target if "box" in where else "")
 
     typer.echo()
     typer.echo("done.")
@@ -263,21 +237,186 @@ def ocr_command(
     typer.echo(f"  + {d.transcript} alongside each")
 
 
-def _log_ocr(
-    ws, row: dict, d: ocr_mod.Derivatives, where: list[str], new_box_path: str
+@app.command(name="jpeg")
+def jpeg_command(
+    project: str = typer.Option(
+        "", "--project", "-p", help="project name as logged in the Sheet (skips the picker)"
+    ),
+    match: str = typer.Option(
+        "_recto", "--match", help="only convert page files whose name contains this ('' = all)"
+    ),
+    quality: int = typer.Option(jpeg_mod.DEFAULT_QUALITY, "--quality", "-q", help="JPEG quality"),
+    subdir: str = typer.Option(jpeg_mod.DEFAULT_SUBDIR, "--subdir", help="output folder name inside the project"),
+    workers: int = typer.Option(jpeg_mod.DEFAULT_WORKERS, "--workers", help="parallel conversions on CentOS"),
+    box: bool | None = typer.Option(
+        None, "--box/--no-box",
+        help="copy the JPEGs to Box (default: yes if the project is on Box, else ask)",
+    ),
+    skip_basil: bool = typer.Option(
+        False, "--skip-basil", help="don't pull to basil this run (e.g. basil unreachable); re-run later"
+    ),
+    force: bool = typer.Option(False, "--force", help="reconvert even if JPEGs already exist on CentOS"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="skip prompts (existing JPEGs are kept unless --force)"),
 ) -> None:
-    """Record the derivatives on the project's Sheet row. Best-effort, never raises."""
-    if ws is None or not row or not where:
+    """Full-resolution JPEG access copies (default: rectos only, quality 80).
+
+    Converts on CentOS into <project>/JPEG/, then pulls that folder to basil and copies
+    it to Box wherever the project already lives, and records it on the Sheet row.
+    """
+    cfg = _load_config()
+    if cfg.centos is None or cfg.google is None:
+        typer.echo("error: jpeg needs [remote.centos] and [google] in config", err=True)
+        raise typer.Exit(2)
+    row = _pick_row(cfg, project, "Pick an archived project to make JPEGs for")
+    project_name = str(row["Project name"])
+    centos_final = str(row["CentOS path"])
+    basil_final = str(row["Basil path"])
+    box_path = str(row["Box path"])
+    if not ssh.path_exists(cfg.centos.host, cfg.centos.user, centos_final):
+        typer.echo(f"error: {centos_final} not found on {cfg.centos.host}", err=True)
+        raise typer.Exit(1)
+
+    existing = jpeg_mod.list_outputs(cfg.centos, centos_final, subdir)
+    reconvert = True
+    if existing:
+        reconvert = force or (not yes and typer.confirm(
+            f"\n{subdir}/ already holds {len(existing)} JPEGs on CentOS. Reconvert them?",
+            default=False,
+        ))
+    send_basil = bool(basil_final) and not skip_basil
+    if send_basil and cfg.basil is None:
+        typer.echo("error: project is on basil but [remote.basil] isn't configured", err=True)
+        raise typer.Exit(2)
+    box_target = _decide_box(cfg, box, box_path, project_name, yes, what="the JPEGs")
+
+    typer.echo()
+    typer.echo("Plan:")
+    typer.echo(f"  project:        {project_name}")
+    typer.echo(f"  masters:        {cfg.centos.user}@{cfg.centos.host}:{centos_final}")
+    typer.echo(
+        f"  convert:        {'files matching ' + repr(match) if match else 'all pages'}"
+        f" -> {subdir}/*.jpg, quality {quality}, full resolution"
+        + ("" if reconvert else "  (existing JPEGs kept)")
+    )
+    typer.echo(f"  basil:          {basil_final + '/' + subdir if send_basil else ('(skipped this run)' if basil_final else '(project not on basil - skipped)')}")
+    typer.echo(f"  box:            {box_target + '/' + subdir if box_target else '(skipped)'}")
+    typer.echo(f"  sheet:          update row {row['_row']}")
+    typer.echo()
+    if not yes and not typer.confirm("Proceed?", default=False):
+        typer.echo("aborted.")
+        raise typer.Exit(1)
+
+    where: list[str] = []
+    names: list[str] = existing
+    label = ""
+    try:
+        if reconvert or not existing:
+            typer.echo("\n[jpeg] converting on CentOS...")
+            jpeg_mod.run_on_centos(
+                cfg.centos, centos_final, subdir=subdir, match=match, quality=quality,
+                workers=workers, overwrite=reconvert,
+            )
+            names = jpeg_mod.list_outputs(cfg.centos, centos_final, subdir)
+        if not names:
+            raise ocr_mod.OCRError("no JPEGs were produced")
+        label = f"{subdir}/ ({len(names)} {match.strip('_') or 'page'} JPEG q{quality})"
+        where.append("centos")
+        if send_basil:
+            typer.echo(f"\n[basil] pulling {subdir}/ CentOS -> basil (+ md5 verify)...")
+            jpeg_mod.pull_dir_to_basil(cfg.centos, cfg.basil, centos_final, basil_final, subdir, names)
+            typer.echo("  ok")
+            where.append("basil")
+        if box_target:
+            typer.echo(f"\n[box] rclone CentOS -> {box_target}/{subdir}...")
+            jpeg_mod.copy_dir_to_box(cfg.centos, centos_final, box_target, subdir)
+            typer.echo("  ok")
+            where.append("box")
+    except (ocr_mod.OCRError, ssh.SSHError) as e:
+        typer.echo(f"\nerror: {e}", err=True)
+        if where:
+            typer.echo(f"  JPEGs are in place on: {', '.join(where)}", err=True)
+            _log_derivatives(row, [label], where, box_target if "box" in where else "")
+        raise typer.Exit(4)
+
+    _log_derivatives(row, [label], where, box_target if "box" in where else "")
+    typer.echo()
+    typer.echo("done.")
+    typer.echo(f"  centos:  {centos_final}/{subdir}/  ({len(names)} files)")
+    if "basil" in where:
+        typer.echo(f"  basil:   {basil_final}/{subdir}/")
+    if "box" in where:
+        typer.echo(f"  box:     {box_target}/{subdir}/")
+
+
+def _pick_row(cfg: config_mod.Config, project: str, prompt: str) -> dict:
+    """Resolve a Sheet row by --project or the picker. Exits on error/cancel."""
+    try:
+        ws = sheet.open_worksheet(cfg.google)
+        rows = sheet.list_projects(ws)
+    except sheet.SheetError as e:
+        typer.echo(f"error: {e}", err=True)
+        raise typer.Exit(3)
+    if not rows:
+        typer.echo("error: the Sheet has no archived projects yet", err=True)
+        raise typer.Exit(1)
+    if project:
+        matches = [r for r in rows if r["Project name"] == project]
+        if not matches:
+            typer.echo(f"error: no Sheet row with Project name {project!r}", err=True)
+            raise typer.Exit(1)
+        row = matches[0]
+    else:
+        row = pickers.pick_sheet_project(rows, prompt=prompt)
+        if row is None:
+            raise typer.Exit(130)
+    row["_ws"] = ws
+    return row
+
+
+def _decide_box(
+    cfg: config_mod.Config, box: bool | None, box_path: str, project_name: str, yes: bool,
+    what: str,
+) -> str:
+    """Box target for derivatives ('' = skip): the row's Box path if any, else ask."""
+    if box is None:
+        if cfg.box is None:
+            return ""
+        if box_path:
+            return box_path
+        target = ocr_mod.box_target_for(cfg.box, project_name)
+        if yes or typer.confirm(f"\nProject isn't on Box. Put just {what} in {target}?", default=True):
+            return target
+        return ""
+    if not box:
+        return ""
+    if cfg.box is None:
+        typer.echo("error: --box needs [remote.box] in config", err=True)
+        raise typer.Exit(2)
+    return box_path or ocr_mod.box_target_for(cfg.box, project_name)
+
+
+def _log_derivatives(row: dict, items: list[str], where: list[str], new_box_path: str) -> None:
+    """Merge derivative entries into the row's Derivatives columns. Best-effort."""
+    ws = row.get("_ws")
+    if ws is None or not where:
         return
     typer.echo("\n[log] updating Sheet row...")
+    have = [s.strip() for s in str(row.get("Derivatives", "")).split(",") if s.strip()]
+    for it in items:
+        if it and it not in have:
+            have.append(it)
+    on = [s.strip() for s in str(row.get("Derivatives on", "")).split(",") if s.strip()]
+    for w in where:
+        if w not in on:
+            on.append(w)
+    order = {"centos": 0, "basil": 1, "box": 2}
+    on.sort(key=lambda w: order.get(w, 9))
     fields = {
-        "OCR files": ", ".join(d.names),
-        "OCR on": ", ".join(where),
-        "OCR date": f"{datetime.now():%Y-%m-%d %H:%M}",
+        "Derivatives": ", ".join(have),
+        "Derivatives on": ", ".join(on),
+        "Derivatives date": f"{datetime.now():%Y-%m-%d %H:%M}",
     }
     if new_box_path and not row.get("Box path"):
-        # The project folder now exists on Box (holding only the OCR files). Status is
-        # left alone so the row doesn't claim the masters were uploaded.
         fields["Box path"] = new_box_path
     try:
         sheet.update_fields(ws, row["_row"], fields)
@@ -403,10 +542,10 @@ def to_basil_command(
     typer.echo("\n[log] updating Sheet row...")
     fields = {"Basil path": basil_final}
     if has_ocr:
-        on = [s.strip() for s in str(row.get("OCR on", "")).split(",") if s.strip()]
+        on = [s.strip() for s in str(row.get("Derivatives on", "")).split(",") if s.strip()]
         if "basil" not in on:
             on.insert(1 if on and on[0] == "centos" else 0, "basil")
-        fields["OCR on"] = ", ".join(on)
+        fields["Derivatives on"] = ", ".join(on)
     try:
         sheet.update_fields(ws, row["_row"], fields)
         typer.echo("  logged.")

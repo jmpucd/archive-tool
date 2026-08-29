@@ -61,7 +61,7 @@ def pick_sheet_project(
     """Pick an already-archived project from the Sheet's rows (newest first)."""
     choices = []
     for r in rows:
-        ocr = "  [ocr'd]" if r.get("OCR date") else ""
+        ocr = f"  [{r['Derivatives']}]" if r.get("Derivatives") else ""
         choices.append(questionary.Choice(
             title=f"{r['Project name']}  ({r['Archived date']})  {r['CentOS path']}{ocr}",
             value=r,

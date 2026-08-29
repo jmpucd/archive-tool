@@ -92,7 +92,7 @@ def pull_to_basil(
         raise OCRError(
             "[remote.centos].host_from_basil is not set; cannot pull derivatives to basil"
         )
-    if not ssh.path_exists(basil.host, basil.user, basil_dir):
+    if not ssh.path_exists(basil.host, basil.user, basil_dir, strict=True):
         raise OCRError(f"basil project folder does not exist: {basil_dir}")
     try:
         transfer.pull_files_from_remote(
