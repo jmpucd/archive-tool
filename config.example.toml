@@ -4,16 +4,17 @@
 
 [local]
 # Short label for this machine, used in log lines and the Google Sheet's "Source machine" column.
-hostname_label = "REPLACE_ME"   # e.g. "laptop", "studio", "mini2"
+hostname_label = "REPLACE_ME"   # e.g. "laptop", "studio"
 
 # Paths the tool scans for projects ready to archive.
 # `label` shows up in the picker; `path` is the folder to scan.
-# Drives that aren't currently mounted are silently skipped.
+# Drives that aren't currently mounted are silently skipped, so list every portable SSD
+# on every machine (same /Volumes/<name> path) and the drive is found wherever it's plugged in.
 # Each folder must contain a `.archive-source` marker file to be treated as a valid source.
 archive_queue_paths = [
-  { label = "Internal",     path = "/Users/REPLACE_ME/archive_queue" },
-  { label = "WorkingDrive", path = "/Volumes/WorkingDrive/archive_queue" },
-  { label = "PortableSSD",  path = "/Volumes/PortableSSD/archive_queue" },
+  { label = "Internal", path = "~/archive_queue" },
+  { label = "SSD2",     path = "/Volumes/SSD2/archive_queue" },
+  { label = "mini2",    path = "/Volumes/mini2/archive_queue" },
 ]
 
 # The archive flow rsyncs from this Mac to two destinations: the CentOS masters copy
@@ -39,6 +40,10 @@ masters_root = "/REPLACE_ME"   # masters land at <masters_root>/<collection-path
 # pull run on basil (rack-speed, avoids a second Mac upload) instead of a Mac->basil push.
 # Requires basil's key authorized on CentOS + basil->CentOS SSH reachable.
 # host_from_basil = "<box>.library.ucdavis.edu"
+# Optional. Python of a digtk checkout on CentOS (github.com/jmpucd/digtk, `pip install -e .`
+# into its .venv, plus the `tesseract` system package). `archive-project ocr` runs digtk
+# there to build a searchable PDF + transcript next to the masters. Default shown.
+# ocr_python = "~/digtk/.venv/bin/python"
 
 [remote.basil]
 # basil is the Special Collections archive AND the destination-collection picker source.
