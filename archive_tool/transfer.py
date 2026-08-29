@@ -57,6 +57,28 @@ def pull_from_remote(
     ssh.run_remote_streaming(puller_host, puller_user, prefix + rsync_cmd)
 
 
+def pull_files_from_remote(
+    puller_host: str,
+    puller_user: str,
+    src_host: str,
+    src_user: str,
+    src_files: list[str],
+    dest_dir: str,
+) -> None:
+    """Like pull_from_remote, but for a handful of named files into an existing dir.
+
+    Used to bring OCR derivatives (PDF + transcript) from the CentOS masters copy into
+    the already-archived basil project folder without re-walking the whole project.
+    """
+    if not src_files:
+        return
+    tokens = _rsync_args(progress2=False, protect_args=True)
+    tokens += [f"{src_user}@{src_host}:{p}" for p in src_files]
+    tokens.append(f"{dest_dir.rstrip('/')}/")
+    rsync_cmd = " ".join(shlex.quote(t) for t in tokens)
+    ssh.run_remote_streaming(puller_host, puller_user, rsync_cmd)
+
+
 def verify_manifest_remote(host: str, user: str, project_path: str) -> None:
     """Run `md5sum -c --quiet manifest.md5` in project_path on the remote.
 

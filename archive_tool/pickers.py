@@ -55,6 +55,23 @@ def pick_project(projects: list[Project]) -> Project | None:
     ).ask()
 
 
+def pick_sheet_project(rows: list[dict]) -> dict | None:
+    """Pick an already-archived project from the Sheet's rows (newest first)."""
+    choices = []
+    for r in rows:
+        ocr = "  [ocr'd]" if r.get("OCR date") else ""
+        choices.append(questionary.Choice(
+            title=f"{r['Project name']}  ({r['Archived date']})  {r['CentOS path']}{ocr}",
+            value=r,
+        ))
+    return questionary.select(
+        "Pick an archived project to OCR",
+        choices=choices,
+        use_search_filter=True,
+        use_jk_keys=False,
+    ).ask()
+
+
 def pick_collection_path(
     host: str, user: str, root: str, auto_creates: bool = False
 ) -> str | None:

@@ -31,6 +31,9 @@ class CentosConfig:
     # `digitization` ssh alias / Tailscale). If present, the basil leg becomes a
     # CentOS->basil PULL run on basil; if absent, it falls back to a Mac->basil push.
     host_from_basil: str | None = None
+    # Python interpreter of a digtk install ON CentOS, used by `archive-project ocr` to
+    # build searchable PDFs next to the masters. `~` is expanded on the remote side.
+    ocr_python: str = "~/digtk/.venv/bin/python"
 
 
 @dataclass(frozen=True)
@@ -126,6 +129,7 @@ def _parse_centos(path: Path, data: dict) -> CentosConfig | None:
         user=raw["user"],
         masters_root=raw["masters_root"],
         host_from_basil=raw.get("host_from_basil") or None,
+        ocr_python=raw.get("ocr_python") or CentosConfig.ocr_python,
     )
 
 

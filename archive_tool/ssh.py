@@ -29,16 +29,31 @@ def run_remote(host: str, user: str, command: str) -> str:
     return result.stdout
 
 
-def run_remote_streaming(host: str, user: str, command: str) -> None:
+def run_remote_streaming(
+    host: str, user: str, command: str, stdin: bytes | None = None
+) -> None:
     """Run a command on `user@host`, stream stdout/stderr to local terminal.
 
     Use this when the remote command produces progress output the user should see
-    (e.g. rsync). Raises SSHError on non-zero exit.
+    (e.g. rsync). `stdin`, when given, is fed to the remote command (used to ship a
+    script for `python -` without scp'ing it first). Raises SSHError on non-zero exit.
     """
     target = f"{user}@{host}"
-    result = subprocess.run(["ssh", *_BASE_OPTS, target, command])
+    result = subprocess.run(["ssh", *_BASE_OPTS, target, command], input=stdin)
     if result.returncode != 0:
         raise SSHError(f"ssh {target} command exited {result.returncode}: {command}")
+
+
+def md5sums(host: str, user: str, paths: list[str]) -> dict[str, str]:
+    """{path: hex md5} for the given remote files (md5sum run on the remote)."""
+    if not paths:
+        return {}
+    out = run_remote(host, user, "md5sum " + " ".join(shlex.quote(p) for p in paths))
+    result: dict[str, str] = {}
+    for line in out.splitlines():
+        if len(line) > 34 and line[32] == " ":
+            result[line[34:].strip()] = line[:32]
+    return result
 
 
 def list_dirs(host: str, user: str, path: str) -> list[str]:

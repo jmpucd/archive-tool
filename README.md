@@ -2,7 +2,9 @@
 
 Custom CLI for archiving a finished digitization project from a Mac to the library
 archives: masters to the CentOS server (always), Special Collections to **basil**
-(optional), an optional Box upload, and a row in the turn-in Google Sheet.
+(optional), an optional Box upload, and a row in the turn-in Google Sheet. A second
+command, `archive-project ocr`, adds a searchable PDF + OCR transcript to an archived
+project everywhere it lives.
 
 Full design and rationale: [`archive-tool-brief.md`](archive-tool-brief.md).
 
@@ -175,11 +177,41 @@ Add `--yes` / `-y` to skip the final confirmation prompt.
 Destination collection folders are **never created automatically** — if the collection
 doesn't exist yet, the picker prints the `mkdir` command to run by hand.
 
+### OCR derivatives (searchable PDF + transcript)
+
+```sh
+archive-project ocr                     # pick an archived project from the Sheet
+archive-project ocr -p D-698_Unprocessed --yes
+```
+
+Builds one searchable PDF and one paged plain-text transcript for a project that has
+**already been archived**, and files them next to the masters:
+
+- Runs **digtk** (Tesseract, parallel) **on CentOS** against the masters copy — nothing
+  is re-uploaded from the Mac, and it works after the local source was deleted. Needs a
+  digtk checkout on CentOS (`[remote.centos].ocr_python`, default `~/digtk/.venv/bin/python`).
+- Writes `<project>.pdf` and `<project>_transcript.txt` **inside the project folder**
+  on CentOS. The masters' `manifest.md5` is not touched.
+- If the Sheet row has a Basil path, basil pulls the two files into its copy of the
+  project (md5-verified). If the project isn't on basil, that leg is skipped.
+- If the row has a Box path, the files are rclone-copied into that Box folder;
+  otherwise it asks whether to create `box:Archives/<project>` holding just the OCR
+  files (`--box` / `--no-box` to decide without asking).
+- Records `OCR files`, `OCR on` (centos/basil/box) and `OCR date` on the row — the
+  files sit inside the folders named in the row's CentOS/Basil/Box path columns.
+
+The transcript is Tesseract output as-is (uncorrected), one `Page N of M - <file>`
+header per image in filename order. `--min-conf` (default 30) drops low-confidence
+words from both the PDF text layer and the transcript; raise it (~40) for pages with
+handwriting or heavy marginalia. `--centos-path /full/path` OCRs a folder that isn't
+in the Sheet (nothing gets logged).
+
 ### Other commands
 
 | Command | What it does |
 | --- | --- |
 | `archive-project` | the full archive flow |
+| `archive-project ocr` | searchable PDF + transcript for an archived project (see above) |
 | `archive-project pick-source` | pick a local project and print its path (debug) |
 | `archive-project pick-dest` | pick a basil collection folder and print it (debug) |
 | `archive-project collaborators` | list the frequent Box collaborators |

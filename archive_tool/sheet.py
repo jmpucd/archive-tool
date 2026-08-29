@@ -30,6 +30,12 @@ COLUMNS = [
     "Share with",
     "Box path",
     "Shared date",
+    # OCR derivatives (`archive-project ocr`), appended 2026-08: the files live INSIDE the
+    # project folder on each destination listed in "OCR on" (the same CentOS/Basil/Box
+    # paths recorded above), so those three columns say where everything went.
+    "OCR files",
+    "OCR on",
+    "OCR date",
 ]
 
 STATUS_ARCHIVED = "archived, not shared"
@@ -58,9 +64,15 @@ def open_worksheet(google: GoogleConfig) -> "gspread.Worksheet":
 
 
 def ensure_header(ws: "gspread.Worksheet") -> None:
-    """Write the header row if the sheet is empty. Refuse to touch a mismatched header."""
+    """Write the header row if the sheet is empty, extend it when new trailing columns
+    were added to COLUMNS, and refuse to touch anything else (reordered/renamed)."""
     existing = ws.row_values(1)
     if existing == COLUMNS:
+        return
+    if existing and COLUMNS[: len(existing)] == existing:
+        # Schema grew (new columns appended). Rewrite the header in place; existing
+        # rows keep their data and simply have blank cells in the new columns.
+        ws.update(values=[COLUMNS], range_name="A1")
         return
     if existing:
         raise SheetError(
@@ -132,6 +144,19 @@ def find_row(ws: "gspread.Worksheet", column: str, value: str) -> int | None:
         if cell == value:
             return i
     return None
+
+
+def list_projects(ws: "gspread.Worksheet") -> list[dict]:
+    """All logged rows as {column: value} dicts, each tagged with its 1-based "_row".
+    Newest first (append order == chronological)."""
+    records = ws.get_all_records(expected_headers=COLUMNS)
+    out = []
+    for i, rec in enumerate(records, start=2):
+        rec = {k: ("" if v is None else v) for k, v in rec.items()}
+        rec["_row"] = i
+        out.append(rec)
+    out.reverse()
+    return out
 
 
 def update_fields(ws: "gspread.Worksheet", row: int, fields: dict[str, str]) -> None:
