@@ -1,7 +1,7 @@
 import hashlib
 from pathlib import Path
 
-EXCLUDE_NAMES = {"@eaDir", "lost+found", ".DS_Store", "Thumbs.db", "manifest.md5"}
+EXCLUDE_NAMES = {"@eaDir", "lost+found", ".DS_Store", ".BridgeSort", "Thumbs.db", "manifest.md5"}
 EXCLUDE_GLOBS = ("*.tmp",)
 MANIFEST_NAME = "manifest.md5"
 

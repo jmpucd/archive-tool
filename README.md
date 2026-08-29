@@ -212,6 +212,7 @@ in the Sheet (nothing gets logged).
 | --- | --- |
 | `archive-project` | the full archive flow |
 | `archive-project ocr` | searchable PDF + transcript for an archived project (see above) |
+| `archive-project to-basil` | send a project that was archived without basil there after the fact: basil pulls the whole CentOS folder (masters, manifest, OCR files), verifies the manifest, fills in the row's Basil path |
 | `archive-project pick-source` | pick a local project and print its path (debug) |
 | `archive-project pick-dest` | pick a basil collection folder and print it (debug) |
 | `archive-project collaborators` | list the frequent Box collaborators |

@@ -55,7 +55,9 @@ def pick_project(projects: list[Project]) -> Project | None:
     ).ask()
 
 
-def pick_sheet_project(rows: list[dict]) -> dict | None:
+def pick_sheet_project(
+    rows: list[dict], prompt: str = "Pick an archived project to OCR"
+) -> dict | None:
     """Pick an already-archived project from the Sheet's rows (newest first)."""
     choices = []
     for r in rows:
@@ -65,7 +67,7 @@ def pick_sheet_project(rows: list[dict]) -> dict | None:
             value=r,
         ))
     return questionary.select(
-        "Pick an archived project to OCR",
+        prompt,
         choices=choices,
         use_search_filter=True,
         use_jk_keys=False,

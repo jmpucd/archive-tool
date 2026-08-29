@@ -72,4 +72,4 @@ sheet_id = "REPLACE_ME"
 [rsync]
 # Reserved for future per-config customization. The exclude list is currently
 # hardcoded in archive_tool.transfer.
-exclude = ["@eaDir", "lost+found", ".DS_Store", "Thumbs.db", "*.tmp"]
+exclude = ["@eaDir", "lost+found", ".DS_Store", ".BridgeSort", "Thumbs.db", "*.tmp"]

@@ -286,6 +286,138 @@ def _log_ocr(
         typer.echo(f"  warning: sheet update failed (files ARE in place): {e}", err=True)
 
 
+@app.command(name="to-basil")
+def to_basil_command(
+    project: str = typer.Option(
+        "", "--project", "-p", help="project name as logged in the Sheet (skips the picker)"
+    ),
+    parent: str = typer.Option(
+        "", "--parent", help="existing basil collection folder to file it under (skips the picker)"
+    ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="skip the confirmation prompt"),
+) -> None:
+    """Send an already-archived project to basil after the fact.
+
+    For projects archived with "Also send to basil?" = no. basil pulls the whole
+    project folder from the CentOS masters copy (TIFFs, manifest, and any OCR files),
+    verifies the MD5 manifest there, and fills in the row's Basil path.
+    """
+    cfg = _load_config()
+    if cfg.centos is None or cfg.basil is None or cfg.google is None:
+        typer.echo(
+            "error: to-basil needs [remote.centos], [remote.basil] and [google] in config",
+            err=True,
+        )
+        raise typer.Exit(2)
+    if not cfg.centos.host_from_basil:
+        typer.echo(
+            "error: [remote.centos].host_from_basil is not set; basil can't pull from CentOS",
+            err=True,
+        )
+        raise typer.Exit(2)
+
+    try:
+        ws = sheet.open_worksheet(cfg.google)
+        rows = sheet.list_projects(ws)
+    except sheet.SheetError as e:
+        typer.echo(f"error: {e}", err=True)
+        raise typer.Exit(3)
+    candidates = [r for r in rows if not r.get("Basil path")]
+    if project:
+        matches = [r for r in rows if r["Project name"] == project]
+        if not matches:
+            typer.echo(f"error: no Sheet row with Project name {project!r}", err=True)
+            raise typer.Exit(1)
+        row = matches[0]
+        if row.get("Basil path"):
+            typer.echo(f"error: {project} is already on basil: {row['Basil path']}", err=True)
+            raise typer.Exit(1)
+    else:
+        if not candidates:
+            typer.echo("Every logged project already has a Basil path. Nothing to do.")
+            raise typer.Exit(0)
+        row = pickers.pick_sheet_project(candidates, prompt="Pick a project to send to basil")
+        if row is None:
+            raise typer.Exit(130)
+    project_name = str(row["Project name"])
+    centos_final = str(row["CentOS path"])
+
+    if not ssh.path_exists(cfg.centos.host, cfg.centos.user, centos_final):
+        typer.echo(f"error: {centos_final} not found on {cfg.centos.host}", err=True)
+        raise typer.Exit(1)
+
+    if parent:
+        basil_parent = parent.rstrip("/")
+    else:
+        try:
+            basil_parent = pickers.pick_collection_path(
+                cfg.basil.host, cfg.basil.user, cfg.basil.uploads_root
+            )
+        except ssh.SSHError as e:
+            typer.echo(f"error: {e}", err=True)
+            raise typer.Exit(3)
+        if basil_parent is None:
+            raise typer.Exit(130)
+    if not ssh.path_exists(cfg.basil.host, cfg.basil.user, basil_parent):
+        typer.echo(f"error: {basil_parent} does not exist on basil. Create it manually first.", err=True)
+        raise typer.Exit(2)
+    basil_final = f"{basil_parent}/{project_name}"
+    if ssh.path_exists(cfg.basil.host, cfg.basil.user, basil_final):
+        typer.echo(f"note: {basil_final} already exists on basil; rsync will fill in what's missing.")
+
+    d = ocr_mod.derivative_names(project_name)
+    has_ocr = ocr_mod.outputs_exist(cfg.centos, centos_final, d)
+
+    typer.echo()
+    typer.echo("Plan:")
+    typer.echo(f"  project:        {project_name}")
+    typer.echo(f"  from (centos):  {cfg.centos.user}@{cfg.centos.host_from_basil}:{centos_final}")
+    typer.echo(f"  to (basil):     {cfg.basil.user}@{cfg.basil.host}:{basil_final}")
+    typer.echo(f"  includes OCR:   {'yes (' + d.pdf + ', ' + d.transcript + ')' if has_ocr else 'no OCR files on CentOS'}")
+    typer.echo(f"  sheet:          set Basil path on row {row['_row']}")
+    typer.echo()
+    if not yes and not typer.confirm("Proceed?", default=False):
+        typer.echo("aborted.")
+        raise typer.Exit(1)
+
+    try:
+        typer.echo("\n[1/2] rsync CentOS -> basil (pull on basil)...")
+        transfer.pull_from_remote(
+            puller_host=cfg.basil.host,
+            puller_user=cfg.basil.user,
+            src_host=cfg.centos.host_from_basil,
+            src_user=cfg.centos.user,
+            src_path=centos_final,
+            dest_path=basil_final,
+            make_parents=True,
+        )
+        typer.echo("\n[2/2] verifying manifest on basil...")
+        transfer.verify_manifest_remote(cfg.basil.host, cfg.basil.user, basil_final)
+        if has_ocr:
+            ocr_mod.verify_copies(cfg.centos, centos_final, cfg.basil.host, cfg.basil.user, basil_final, d)
+        typer.echo("  ok")
+    except (transfer.TransferError, ssh.SSHError, ocr_mod.OCRError) as e:
+        typer.echo(f"\nerror: {e}", err=True)
+        raise typer.Exit(4)
+
+    typer.echo("\n[log] updating Sheet row...")
+    fields = {"Basil path": basil_final}
+    if has_ocr:
+        on = [s.strip() for s in str(row.get("OCR on", "")).split(",") if s.strip()]
+        if "basil" not in on:
+            on.insert(1 if on and on[0] == "centos" else 0, "basil")
+        fields["OCR on"] = ", ".join(on)
+    try:
+        sheet.update_fields(ws, row["_row"], fields)
+        typer.echo("  logged.")
+    except sheet.SheetError as e:
+        typer.echo(f"  warning: sheet update failed (files ARE on basil): {e}", err=True)
+
+    typer.echo()
+    typer.echo("done.")
+    typer.echo(f"  basil archive:  {cfg.basil.user}@{cfg.basil.host}:{basil_final}")
+
+
 def _report_no_projects(cfg: config_mod.Config) -> None:
     """Explain *why* nothing was found and where to put a project. Always exits."""
     typer.echo("No projects found in any mounted archive_queue.\n", err=True)

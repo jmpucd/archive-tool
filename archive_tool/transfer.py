@@ -4,7 +4,7 @@ from pathlib import Path
 
 from archive_tool import ssh
 
-EXCLUDES = ("@eaDir", "lost+found", ".DS_Store", "Thumbs.db", "*.tmp")
+EXCLUDES = ("@eaDir", "lost+found", ".DS_Store", ".BridgeSort", "Thumbs.db", "*.tmp")
 
 
 class TransferError(Exception):
