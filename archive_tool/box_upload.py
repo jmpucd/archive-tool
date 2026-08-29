@@ -15,13 +15,19 @@ class BoxUploadError(Exception):
     pass
 
 
+# rclone's --progress redraws a multi-line block twice a second, which over a non-TTY
+# SSH stream floods the terminal and buries the run's closing lines. One summary line
+# every 15s keeps the transfer visible without the spam.
+_PROGRESS = "--stats 15s --stats-one-line --stats-log-level NOTICE"
+
+
 def upload_to_box(centos: CentosConfig, centos_path: str, box: BoxConfig, project: str) -> str:
     """rclone-copy centos_path into <remote><base_folder>/<project>. Returns the Box path."""
     box_dest = f"{box.base_folder.rstrip('/')}/{project}"
     target = f"{box.rclone_remote}{box_dest}"
     cmd = (
         f"rclone copy {shlex.quote(centos_path)} {shlex.quote(target)} "
-        f"--create-empty-src-dirs --progress"
+        f"--create-empty-src-dirs {_PROGRESS}"
     )
     try:
         ssh.run_remote_streaming(centos.host, centos.user, cmd)
@@ -41,7 +47,7 @@ def upload_files_to_box(
     includes = " ".join(f"--include {shlex.quote('/' + n)}" for n in filenames)
     cmd = (
         f"rclone copy {shlex.quote(project_dir)} {shlex.quote(box_target)} "
-        f"{includes} --progress"
+        f"{includes} {_PROGRESS}"
     )
     try:
         ssh.run_remote_streaming(centos.host, centos.user, cmd)
