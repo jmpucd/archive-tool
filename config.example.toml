@@ -15,6 +15,8 @@ archive_queue_paths = [
   { label = "Internal", path = "~/archive_queue" },
   { label = "SSD2",     path = "/Volumes/SSD2/archive_queue" },
   { label = "mini2",    path = "/Volumes/mini2/archive_queue" },
+  { label = "Mini_2",   path = "/Volumes/Mini_2/archive_queue" },
+  { label = "UCD_DIGI", path = "/Volumes/UCD_DIGI/archive_queue" },
 ]
 
 # The archive flow rsyncs from this Mac to two destinations: the CentOS masters copy
