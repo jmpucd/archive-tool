@@ -56,7 +56,7 @@ def pick_source() -> None:
 
 @app.command(name="pick-dest")
 def pick_dest() -> None:
-    """Pick a destination collection folder on basil and print its path."""
+    """Pick a destination folder on basil (walking its tree) and print its path."""
     cfg = _load_config()
     if cfg.basil is None:
         typer.echo("error: [remote.basil] section not configured", err=True)

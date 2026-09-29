@@ -164,7 +164,11 @@ Run `archive-project` with no arguments. It collects **every** decision up front
 runs unattended:
 
 1. Pick the source project from your local `archive_queue`.
-2. Pick the destination collection path (browsed live from basil's real tree).
+2. Pick the destination collection path (browsed live from basil's real tree). Inside
+   a `*-Collections` folder you pick the collection (or `+ new collection`); inside any
+   other folder (Books_and_Pamphlets, Maps, Serials, ...) you keep drilling into
+   subfolders until you choose `» file it here` (or `+ new subfolder` to name one
+   that doesn't exist yet).
 3. Ask whether to also send to basil, whether to upload to Box and who to share with,
    and whether to delete the local source after everything verifies.
 4. Print the full plan and ask once for confirmation.

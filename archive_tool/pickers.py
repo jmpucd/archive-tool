@@ -1,4 +1,5 @@
 import re
+import shlex
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -9,6 +10,10 @@ from archive_tool import collaborators, ssh
 from archive_tool.config import ArchiveQueue
 
 NEW_COLLECTION_LABEL = "+ new collection"
+FILE_HERE_LABEL = "» file it here"
+FILE_HERE_VALUE = "__file_here__"
+NEW_SUBFOLDER_LABEL = "+ new subfolder"
+NEW_SUBFOLDER_VALUE = "__new_subfolder__"
 ADD_EMAIL_VALUE = "__add_new_email__"
 
 
@@ -77,17 +82,23 @@ def pick_sheet_project(
 def pick_collection_path(
     host: str, user: str, root: str, auto_creates: bool = False
 ) -> str | None:
-    """Two-level remote picker over SSH.
+    """Walk a remote tree over SSH until a filing folder is chosen. Returns None if the
+    user cancels.
 
-    Lists top-level dirs under root. If the picked dir matches `*-Collections`,
-    recurses one level and offers a "new collection" option. Otherwise returns the
-    picked top-level path directly. Returns None if the user cancels.
+    The first level is always a folder pick (nothing is filed straight under root).
+    From there the behaviour depends on the folder:
 
-    Does not create any directories itself. If "new collection" is chosen, the path is
-    returned along with a stderr note — either that it'll be auto-created on transfer
+    * `*-Collections` (D-, MC-, AR-, O-): lists its collections plus "+ new collection".
+      The picked collection is final - we never drill into a collection's own projects.
+    * anything else (Books_and_Pamphlets, Maps, Serials, ...): lists its subfolders plus
+      "file it here" and "+ new subfolder", and keeps walking down until the user files.
+
+    Does not create any directories itself. If a new collection/subfolder is chosen, the
+    path is returned along with a stderr note - either that it'll be auto-created on transfer
     (auto_creates=True, e.g. CentOS's organic tree), or that the user must mkdir it
     manually first (auto_creates=False, e.g. basil, which never auto-spawns collections).
     """
+    root = root.rstrip("/")
     parents = ssh.list_dirs(host, user, root)
     if not parents:
         typer.echo(
@@ -96,34 +107,43 @@ def pick_collection_path(
         )
         return None
 
-    parent = questionary.select(
-        f"Pick a destination folder under {root}",
-        choices=parents,
-        use_search_filter=True,
-        use_jk_keys=False,
-    ).ask()
-    if parent is None:
+    name = _select(f"Pick a destination folder under {root}", parents)
+    if name is None:
         return None
+    path = f"{root}/{name}"
 
-    parent_path = f"{root.rstrip('/')}/{parent}"
-    if not parent.endswith("-Collections"):
-        return parent_path
+    while True:
+        children = ssh.list_dirs(host, user, path)
 
-    children = ssh.list_dirs(host, user, parent_path)
-    choices = children + [NEW_COLLECTION_LABEL]
-    child = questionary.select(
-        f"Pick a collection in {parent}",
-        choices=choices,
-        use_search_filter=True,
-        use_jk_keys=False,
+        if name.endswith("-Collections"):
+            child = _select(f"Pick a collection in {name}", children + [NEW_COLLECTION_LABEL])
+            if child is None:
+                return None
+            if child == NEW_COLLECTION_LABEL:
+                return _prompt_new_collection(host, user, name, path, auto_creates)
+            return f"{path}/{child}"
+
+        choices = [
+            questionary.Choice(title=f"{FILE_HERE_LABEL} ({name}/)", value=FILE_HERE_VALUE),
+            *children,
+            questionary.Choice(title=NEW_SUBFOLDER_LABEL, value=NEW_SUBFOLDER_VALUE),
+        ]
+        child = _select(f"Pick a subfolder of {name}, or file it here", choices)
+        if child is None:
+            return None
+        if child == FILE_HERE_VALUE:
+            return path
+        if child == NEW_SUBFOLDER_VALUE:
+            return _prompt_new_subfolder(host, user, name, path, children, auto_creates)
+        name = child
+        path = f"{path}/{child}"
+
+
+def _select(message: str, choices: list) -> str | None:
+    """Arrow-key picker with search-as-you-type. None if the user cancels."""
+    return questionary.select(
+        message, choices=choices, use_search_filter=True, use_jk_keys=False
     ).ask()
-    if child is None:
-        return None
-
-    if child == NEW_COLLECTION_LABEL:
-        return _prompt_new_collection(host, user, parent, parent_path, auto_creates)
-
-    return f"{parent_path}/{child}"
 
 
 def pick_share_recipients() -> list[str] | None:
@@ -196,13 +216,44 @@ def _prompt_new_collection(
         return None
 
     new_path = f"{parent_path}/{new_id}"
+    _note_new_dir(host, user, new_path, auto_creates)
+    return new_path
+
+
+def _prompt_new_subfolder(
+    host: str, user: str, parent: str, parent_path: str, siblings: list[str],
+    auto_creates: bool,
+) -> str | None:
+    """Name a not-yet-existing subfolder under a non-Collections folder (any name basil
+    already uses is fair game - spaces and colons included - just no slashes)."""
+
+    def validate(v: str) -> bool | str:
+        v = v.strip()
+        if not v:
+            return "name can't be empty"
+        if "/" in v or v in (".", ".."):
+            return "must be a single folder name (no slashes)"
+        if v.startswith("."):
+            return "hidden folders (leading dot) aren't allowed"
+        if v in siblings:
+            return f"{v} already exists in {parent} - pick it from the list instead"
+        return True
+
+    new_name = questionary.text(f"New subfolder name under {parent}/:", validate=validate).ask()
+    if new_name is None:
+        return None
+    new_path = f"{parent_path}/{new_name.strip()}"
+    _note_new_dir(host, user, new_path, auto_creates)
+    return new_path
+
+
+def _note_new_dir(host: str, user: str, new_path: str, auto_creates: bool) -> None:
     if auto_creates:
         typer.echo(f"\nNote: {new_path} doesn't exist yet on {host} — it'll be created automatically.", err=True)
     else:
         typer.echo(
             f"\nNote: {new_path} does not exist yet on {host}.\n"
             f"Create it manually before transferring:\n"
-            f"  ssh {user}@{host} mkdir {new_path}\n",
+            f"  ssh {user}@{host} mkdir {shlex.quote(new_path)}\n",
             err=True,
         )
-    return new_path

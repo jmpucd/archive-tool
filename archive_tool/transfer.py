@@ -109,6 +109,10 @@ def _rsync_args(progress2: bool = True, protect_args: bool = False) -> list[str]
         "-a",                # archive mode (recursive, symlinks, perms, times, devices)
         "--no-owner",        # cross-machine UIDs differ; don't try to preserve them
         "--no-group",
+        # Normalize permissions instead of copying the source's. Masters come off the
+        # Macs as 700/600 (owner-only), and -a would carry that to CentOS and basil,
+        # where Special Collections staff then can't open them. Dirs 755, files 644.
+        "--chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r",  # symbolic: basil rsync 3.0.6 rejects octal
         "--partial",         # keep partial transfers for resume
         "--append-verify",   # resume by appending, then verifying the existing chunk
         "-h",
