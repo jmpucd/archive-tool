@@ -39,12 +39,15 @@ def upload_to_box(centos: CentosConfig, centos_path: str, box: BoxConfig, projec
 def upload_files_to_box(
     centos: CentosConfig, project_dir: str, filenames: list[str], box_target: str
 ) -> None:
-    """rclone-copy only `filenames` (top-level names inside project_dir) into an existing
-    Box target like "box:Archives/<project>". Used for OCR derivatives, so a project
-    that was never uploaded to Box in full still gets a Box folder holding the PDF."""
+    """rclone-copy only `filenames` (paths relative to project_dir, e.g. "X.pdf" or
+    "TIFF (8-bit)/X_recto.tif") into a Box target like "box:Archives/<project>". Used
+    for OCR derivatives, so a project that was never uploaded to Box in full still gets
+    a Box folder holding the PDF, and by add-files for newly added pages."""
     if not filenames:
         return
-    includes = " ".join(f"--include {shlex.quote('/' + n)}" for n in filenames)
+    includes = " ".join(
+        f"--include {shlex.quote('/' + _escape_filter(n))}" for n in filenames
+    )
     cmd = (
         f"rclone copy {shlex.quote(project_dir)} {shlex.quote(box_target)} "
         f"{includes} {_PROGRESS}"
@@ -53,3 +56,8 @@ def upload_files_to_box(
         ssh.run_remote_streaming(centos.host, centos.user, cmd)
     except ssh.SSHError as e:
         raise BoxUploadError(f"rclone copy to {box_target} failed: {e}") from e
+
+
+def _escape_filter(name: str) -> str:
+    """Backslash-escape rclone filter glob characters so a literal filename matches."""
+    return "".join("\\" + c if c in "\\*?[]{}" else c for c in name)

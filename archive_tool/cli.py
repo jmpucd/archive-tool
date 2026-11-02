@@ -1,3 +1,4 @@
+import shlex
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -555,6 +556,266 @@ def to_basil_command(
     typer.echo()
     typer.echo("done.")
     typer.echo(f"  basil archive:  {cfg.basil.user}@{cfg.basil.host}:{basil_final}")
+
+
+@app.command(name="add-files")
+def add_files_command(
+    source: Path = typer.Argument(
+        ...,
+        help="local folder laid out like the project, e.g. a Capture One Output/<name> "
+        "folder holding 'TIFF (8-bit)/' and 'JPEG Quality 80/'",
+    ),
+    project: str = typer.Option(
+        "", "--project", "-p", help="project name as logged in the Sheet (skips the picker)"
+    ),
+    box: bool | None = typer.Option(
+        None, "--box/--no-box",
+        help="copy the new files to Box (default: yes if the row has a Box path, else no)",
+    ),
+    skip_basil: bool = typer.Option(
+        False, "--skip-basil", help="don't pull to basil this run (e.g. basil unreachable)"
+    ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="skip the confirmation prompt"),
+) -> None:
+    """Add new files (e.g. late reshoots) to an already-archived project.
+
+    SOURCE's contents are merged into the project folder on CentOS, keeping its
+    subfolder layout; a file already there is never overwritten (identical copies are
+    skipped, different ones stop the run). The project's manifest.md5 gains the new
+    files and is re-verified, basil pulls and Box gets them wherever the project already
+    lives, and the Sheet row's MD5 manifest checksum is updated. The local source is
+    left in place.
+    """
+    cfg = _load_config()
+    if cfg.centos is None or cfg.google is None:
+        typer.echo("error: add-files needs [remote.centos] and [google] in config", err=True)
+        raise typer.Exit(2)
+    source = source.expanduser()
+    if not source.is_dir():
+        typer.echo(f"error: {source} is not a folder", err=True)
+        raise typer.Exit(2)
+    source_files = [rel.as_posix() for rel in checksums.iter_files(source)]
+    if not source_files:
+        typer.echo(f"error: no files to add in {source}", err=True)
+        raise typer.Exit(1)
+
+    row = _pick_row(cfg, project, "Pick the archived project to add files to")
+    project_name = str(row["Project name"])
+    centos_final = str(row["CentOS path"])
+    basil_final = str(row["Basil path"])
+    box_path = str(row["Box path"])
+
+    try:
+        listing = ssh.run_remote(
+            cfg.centos.host, cfg.centos.user,
+            f"cd {shlex.quote(centos_final)} && find . -type f -printf '%P\\n'",
+        )
+    except ssh.SSHError as e:
+        typer.echo(f"error: can't list {centos_final} on {cfg.centos.host}: {e}", err=True)
+        raise typer.Exit(1)
+    existing = set(listing.splitlines())
+    if checksums.MANIFEST_NAME not in existing:
+        typer.echo(f"error: {centos_final} has no {checksums.MANIFEST_NAME} to extend", err=True)
+        raise typer.Exit(1)
+    manifest_remote = f"{centos_final}/{checksums.MANIFEST_NAME}"
+    try:
+        old_text = ssh.run_remote(
+            cfg.centos.host, cfg.centos.user, f"cat {shlex.quote(manifest_remote)}"
+        )
+    except ssh.SSHError as e:
+        typer.echo(f"error: {e}", err=True)
+        raise typer.Exit(3)
+    old = checksums.parse_manifest(old_text)
+
+    # Never overwrite a master. A name that's already there is fine only if it's the
+    # same file (e.g. re-running after a partial failure); anything else stops here.
+    clashes = [f for f in source_files if f in existing]
+    if clashes:
+        remote_md5 = ssh.md5sums(
+            cfg.centos.host, cfg.centos.user, [f"{centos_final}/{f}" for f in clashes]
+        )
+        differ = [
+            f for f in clashes
+            if remote_md5.get(f"{centos_final}/{f}") != checksums.md5_file(source / f)
+        ]
+        if differ:
+            typer.echo(
+                f"error: {len(differ)} file(s) already exist in the project with different "
+                "contents; rename them or remove them from the source:",
+                err=True,
+            )
+            for f in differ:
+                typer.echo(f"  {f}", err=True)
+            raise typer.Exit(1)
+    missing = [f for f in source_files if f in old and f not in existing]
+    if missing:
+        typer.echo(
+            f"error: the CentOS manifest lists {len(missing)} of these file(s) but they're "
+            f"not on disk there; check {centos_final} by hand: {', '.join(missing)}",
+            err=True,
+        )
+        raise typer.Exit(1)
+    # Keyed on the manifest, not the folder: a file a failed run got onto CentOS before
+    # it could write the manifest still needs adding. Nothing new left = a re-run to
+    # finish basil/Box after a failure, so those legs still go.
+    new_files = [f for f in source_files if f not in old]
+    if len(new_files) < len(source_files):
+        typer.echo(
+            f"note: {len(source_files) - len(new_files)} file(s) already archived on CentOS "
+            "(identical); not re-adding them."
+        )
+
+    send_basil = bool(basil_final) and not skip_basil
+    if send_basil and (cfg.basil is None or not cfg.centos.host_from_basil):
+        typer.echo(
+            "error: project is on basil but [remote.basil] / [remote.centos].host_from_basil "
+            "isn't configured (or pass --skip-basil)",
+            err=True,
+        )
+        raise typer.Exit(2)
+    if box and cfg.box is None:
+        typer.echo("error: --box needs [remote.box] in config", err=True)
+        raise typer.Exit(2)
+    if box is None:
+        box_target = box_path if cfg.box is not None else ""
+    elif box:
+        box_target = box_path or ocr_mod.box_target_for(cfg.box, project_name)
+    else:
+        box_target = ""
+    # Only refresh Box's manifest when the Box folder is the project's (it may hold just
+    # OCR files, or be brand new via --box, where a full-project manifest would mislead).
+    box_files = source_files + [checksums.MANIFEST_NAME] if box_path else list(source_files)
+    if not new_files and not send_basil and not box_target:
+        typer.echo("Nothing to do: every file is already archived.")
+        raise typer.Exit(0)
+
+    existing_dirs = {f.split("/", 1)[0] for f in existing if "/" in f}
+    groups: dict[str, int] = {}
+    for f in new_files:
+        top = f.split("/", 1)[0] + "/" if "/" in f else "(top level)"
+        groups[top] = groups.get(top, 0) + 1
+    size_gb = sum((source / f).stat().st_size for f in new_files) / 1e9
+
+    typer.echo()
+    typer.echo("Plan:")
+    typer.echo(f"  project:        {project_name}")
+    typer.echo(f"  source:         {source}")
+    if new_files:
+        typer.echo(f"  new files:      {len(new_files)} ({size_gb:.2f} GB)")
+    else:
+        typer.echo("  new files:      none (all already on CentOS) - re-syncing basil/Box only")
+    for top, n in groups.items():
+        is_new = top.endswith("/") and top[:-1] not in existing_dirs
+        typer.echo(f"    {top:<24} {n:>4}{'  (new folder in the project)' if is_new else ''}")
+    if any(f.endswith((".iiq", ".cosessiondb")) for f in new_files):
+        typer.echo(
+            "  warning:        source has Capture One RAW/session files; did you mean its "
+            "Output/<name> folder?"
+        )
+    typer.echo(f"  centos masters: {cfg.centos.user}@{cfg.centos.host}:{centos_final}")
+    typer.echo(
+        "  basil archive:  "
+        + (basil_final if send_basil else
+           ("(skipped this run)" if basil_final else "(project not on basil - skipped)"))
+    )
+    typer.echo(f"  box:            {box_target or '(skipped)'}")
+    typer.echo(f"  sheet:          new MD5 manifest checksum on row {row['_row']}")
+    typer.echo()
+    if not yes and not typer.confirm("Proceed?", default=False):
+        typer.echo("aborted.")
+        raise typer.Exit(1)
+
+    steps = 3 * bool(new_files) + send_basil + bool(box_target)
+    n = 0
+    mc = "" if new_files else checksums.text_checksum(old_text)
+    where: list[str] = [] if new_files else ["centos"]
+    try:
+        if new_files:
+            n += 1
+            typer.echo(f"\n[{n}/{steps}] hashing {len(new_files)} new file(s)...")
+            local_md5 = {f: checksums.md5_file(source / f) for f in new_files}
+
+            n += 1
+            typer.echo(f"\n[{n}/{steps}] rsync Mac -> CentOS masters...")
+            transfer.push_to_remote(
+                source, cfg.centos.host, cfg.centos.user, centos_final,
+                extra_excludes=(checksums.MANIFEST_NAME,),
+            )
+
+            n += 1
+            typer.echo(f"\n[{n}/{steps}] extending manifest on CentOS (+ verify whole project)...")
+            landed = ssh.md5sums(
+                cfg.centos.host, cfg.centos.user, [f"{centos_final}/{f}" for f in new_files]
+            )
+            bad = [f for f in new_files if landed.get(f"{centos_final}/{f}") != local_md5[f]]
+            if bad:
+                raise transfer.TransferError(
+                    "new file(s) don't match the local copy on CentOS (manifest left unchanged): "
+                    + ", ".join(bad)
+                )
+            text = checksums.format_manifest({**old, **local_md5})
+            transfer.write_remote_file(cfg.centos.host, cfg.centos.user, manifest_remote, text)
+            mc = checksums.text_checksum(text)
+            transfer.verify_manifest_remote(cfg.centos.host, cfg.centos.user, centos_final)
+            typer.echo(f"  ok ({len(old)} -> {len(old) + len(local_md5)} files)")
+            where.append("centos")
+
+        if send_basil:
+            n += 1
+            typer.echo(f"\n[{n}/{steps}] rsync CentOS -> basil (pull on basil, + verify)...")
+            # --append-verify resumes basil's older, shorter manifest.md5, finds it doesn't
+            # match, and re-sends it whole - so rsync's "failed verification" is expected.
+            typer.echo("  (an rsync 'manifest.md5 failed verification' warning here is expected)")
+            transfer.pull_from_remote(
+                puller_host=cfg.basil.host,
+                puller_user=cfg.basil.user,
+                src_host=cfg.centos.host_from_basil,
+                src_user=cfg.centos.user,
+                src_path=centos_final,
+                dest_path=basil_final,
+            )
+            transfer.verify_manifest_remote(cfg.basil.host, cfg.basil.user, basil_final)
+            typer.echo("  ok")
+            where.append("basil")
+
+        if box_target:
+            n += 1
+            typer.echo(f"\n[{n}/{steps}] rclone CentOS -> {box_target}...")
+            box_upload.upload_files_to_box(cfg.centos, centos_final, box_files, box_target)
+            typer.echo("  ok")
+            where.append("box")
+    except (transfer.TransferError, ssh.SSHError, box_upload.BoxUploadError) as e:
+        typer.echo(f"\nerror: {e}", err=True)
+        if where:
+            typer.echo(f"  new files are in place on: {', '.join(where)}", err=True)
+        if mc:  # the CentOS manifest changed, so the Sheet must follow it either way
+            _log_added_files(row, mc, box_target if "box" in where else "")
+        raise typer.Exit(4)
+
+    _log_added_files(row, mc, box_target if "box" in where else "")
+
+    typer.echo()
+    typer.echo("done.")
+    typer.echo(f"  added:             {len(new_files)} new file(s); in place on {', '.join(where)}")
+    typer.echo(f"  manifest checksum: {mc}")
+    typer.echo(f"  local source:      {source} (kept)")
+
+
+def _log_added_files(row: dict, manifest_checksum: str, new_box_path: str) -> None:
+    """Record add-files' new manifest checksum (and a first Box path). Best-effort."""
+    typer.echo("\n[log] updating Sheet row...")
+    fields = {"MD5 manifest checksum": manifest_checksum}
+    if new_box_path and not row.get("Box path"):
+        fields["Box path"] = new_box_path
+    try:
+        sheet.update_fields(row["_ws"], row["_row"], fields)
+        typer.echo("  logged.")
+    except sheet.SheetError as e:
+        typer.echo(
+            f"  warning: sheet update failed (files ARE in place); set the row's MD5 "
+            f"manifest checksum to {manifest_checksum} by hand: {e}",
+            err=True,
+        )
 
 
 def _report_no_projects(cfg: config_mod.Config) -> None:

@@ -226,6 +226,24 @@ words from both the PDF text layer and the transcript; raise it (~40) for pages 
 handwriting or heavy marginalia. `--centos-path /full/path` OCRs a folder that isn't
 in the Sheet (nothing gets logged).
 
+### Adding files to an archived project
+
+```sh
+archive-project add-files "/Volumes/SSD2/D-757_galvan/Output/D-757_galvan" -p D-757_joaquin_galvan_poster_selection
+```
+
+For pages shot after a project was archived. Point it at a folder laid out like the
+project (for a Capture One session that's `Output/<name>`, holding `TIFF (8-bit)/` and
+`JPEG Quality 80/` - not the session root with its RAW files). It merges the new files
+into the CentOS masters folder, adds them to the existing `manifest.md5` and re-verifies
+the whole project, then basil pulls and Box gets the new files wherever the project
+already lives (`--no-box` / `--box` / `--skip-basil` override). The row's MD5 manifest
+checksum is updated; the local source is kept.
+
+Nothing already archived is overwritten: a file that's already there with the same
+contents is skipped, a different one stops the run before anything moves. Re-running
+after a failed basil or Box leg just finishes those legs.
+
 ### Other commands
 
 | Command | What it does |
@@ -233,6 +251,7 @@ in the Sheet (nothing gets logged).
 | `archive-project` | the full archive flow |
 | `archive-project ocr` | searchable PDF + transcript for an archived project (see above) |
 | `archive-project jpeg` | full-res JPEG access copies (rectos by default) into `<project>/JPEG/` everywhere the project lives |
+| `archive-project add-files <folder>` | add new files to an archived project, extend its manifest, fan out to basil/Box (see above) |
 | `archive-project to-basil` | send a project that was archived without basil there after the fact: basil pulls the whole CentOS folder (masters, manifest, OCR files), verifies the manifest, fills in the row's Basil path |
 | `archive-project pick-source` | pick a local project and print its path (debug) |
 | `archive-project pick-dest` | pick a basil collection folder and print it (debug) |

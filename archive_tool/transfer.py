@@ -12,7 +12,12 @@ class TransferError(Exception):
 
 
 def push_to_remote(
-    source: Path, host: str, user: str, dest: str, make_parents: bool = False
+    source: Path,
+    host: str,
+    user: str,
+    dest: str,
+    make_parents: bool = False,
+    extra_excludes: tuple[str, ...] = (),
 ) -> None:
     """Rsync the *contents* of `source` into `dest` on user@host. The Mac is the source.
 
@@ -20,12 +25,14 @@ def push_to_remote(
     project), not nested one level deeper. When make_parents is set, `mkdir -p dest` runs
     on the remote first — used for the CentOS masters tree, which is organic and may not
     have the collection path yet. (basil collections come from its own picker, so they
-    already exist; only the project dir is created there by rsync.)
+    already exist; only the project dir is created there by rsync.) `extra_excludes` are
+    added to the standard EXCLUDES (add-files keeps a stray manifest.md5 from landing).
     """
     if make_parents:
         ssh.run_remote(host, user, f"mkdir -p {shlex.quote(dest)}")
     target = f"{user}@{host}:{dest}/"
-    _run_local(_rsync_args() + [f"{source}/", target])
+    excludes = [f"--exclude={ex}" for ex in extra_excludes]
+    _run_local(_rsync_args() + excludes + [f"{source}/", target])
 
 
 def pull_from_remote(
@@ -100,6 +107,30 @@ def verify_manifest_remote(host: str, user: str, project_path: str) -> None:
             details.append(f"stderr:\n{result.stderr.strip()}")
         raise TransferError(
             f"manifest verification failed on {host}:{project_path}\n" + "\n".join(details)
+        )
+
+
+def write_remote_file(host: str, user: str, path: str, text: str) -> None:
+    """Atomically replace `path` on the remote with `text` (mode 644).
+
+    Written to a sibling temp file and mv'd over, so a dropped connection never leaves
+    a half-written manifest behind.
+    """
+    tmp = f"{path}.tmp"  # *.tmp is in EXCLUDES/manifest excludes, so it's never archived
+    cmd = (
+        f"umask 022 && cat > {shlex.quote(tmp)} && "
+        f"mv -f {shlex.quote(tmp)} {shlex.quote(path)}"
+    )
+    target = f"{user}@{host}"
+    result = subprocess.run(
+        ["ssh", "-o", "BatchMode=yes", target, cmd],
+        input=text.encode(),
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        raise TransferError(
+            f"writing {host}:{path} failed (exit {result.returncode}): "
+            f"{result.stderr.decode(errors='replace').strip() or '(no stderr)'}"
         )
 
 

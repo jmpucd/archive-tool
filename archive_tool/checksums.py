@@ -44,16 +44,30 @@ def write_manifest(project_root: Path) -> Path:
     if manifest_path.exists():
         manifest_path.unlink()
 
-    lines = []
-    for rel in iter_files(project_root):
-        full = project_root / rel
-        digest = md5_file(full)
-        lines.append(f"{digest}  {rel.as_posix()}\n")
-
-    manifest_path.write_text("".join(lines))
+    entries = {rel.as_posix(): md5_file(project_root / rel) for rel in iter_files(project_root)}
+    manifest_path.write_text(format_manifest(entries))
     return manifest_path
+
+
+def parse_manifest(text: str) -> dict[str, str]:
+    """{relative path: hex md5} from md5sum-format manifest text."""
+    entries: dict[str, str] = {}
+    for line in text.splitlines():
+        if len(line) > 34 and line[32:34] == "  ":
+            entries[line[34:]] = line[:32]
+    return entries
+
+
+def format_manifest(entries: dict[str, str]) -> str:
+    """md5sum-format manifest text, in the same order write_manifest uses."""
+    return "".join(f"{entries[rel]}  {rel}\n" for rel in sorted(entries, key=Path))
 
 
 def manifest_checksum(manifest_path: Path) -> str:
     """MD5 of the manifest file itself, for tamper detection in the Sheet."""
     return md5_file(manifest_path)
+
+
+def text_checksum(text: str) -> str:
+    """manifest_checksum for manifest text that isn't on local disk (e.g. built for CentOS)."""
+    return hashlib.md5(text.encode()).hexdigest()
